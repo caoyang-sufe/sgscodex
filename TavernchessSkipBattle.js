@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.0
 // @description  点击按钮跳过自走棋战斗动画
-// @author       YourName
+// @author       caoyang
 // @match        *://*.sanguosha.com/*
 // @match        https://game.4399iw2.com/yxxsgs/*
 // @grant        none
@@ -11,7 +11,6 @@
 
 (function() {
     'use strict';
-
     // 查找自走棋场景
     function search(obj) {
         if (!obj) return null;
@@ -35,24 +34,24 @@
                 const phase = scene.manager?.phase;
                 if (phase === 9) {
                     scene.onJumpBtnClick();
-                    console.log('[跳过战斗] ✅ 已跳过战斗动画');
+                    console.log('[跳过战斗] 已跳过战斗动画');
                     return true;
                 } else if (phase === 7) {
                     scene.onEndRecruitJump();
-                    console.log('[跳过战斗] ✅ 已结束招募阶段');
+                    console.log('[跳过战斗] 已结束招募阶段');
                     return true;
                 } else {
-                    console.log('[跳过战斗] ⏸ 当前阶段无需跳过 (阶段:', phase, ')');
+                    console.log('[跳过战斗] 当前阶段无需跳过 (阶段:', phase, ')');
                     return false;
                 }
             } else if (scene) {
-                console.log('[跳过战斗] ⚠️ 场景中找到但方法不存在');
+                console.log('[跳过战斗] 场景中找到但方法不存在');
             } else {
-                console.log('[跳过战斗] ⚠️ 未找到自走棋场景');
+                console.log('[跳过战斗] 未找到自走棋场景');
             }
             return false;
         } catch(e) {
-            console.log('[跳过战斗] ❌ 错误:', e.message);
+            console.log('[跳过战斗] 错误:', e.message);
             return false;
         }
     }
@@ -64,7 +63,7 @@
 
         const btn = document.createElement('button');
         btn.id = 'my-skip-battle-btn';
-        btn.textContent = '⏭ 跳过战斗';
+        btn.textContent = '跳过战斗';
         btn.style.cssText = `
             position: fixed;
             bottom: 80px;
@@ -96,16 +95,16 @@
         // 点击事件
         btn.addEventListener('click', function() {
             const originalText = this.textContent;
-            this.textContent = '⏳ 执行中...';
+            this.textContent = '执行中...';
             this.style.opacity = '0.7';
 
             const result = skipBattle();
 
             if (result) {
-                this.textContent = '✅ 已跳过';
+                this.textContent = '已跳过';
                 this.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
             } else {
-                this.textContent = '❌ 无法跳过';
+                this.textContent = '无法跳过';
                 this.style.background = 'linear-gradient(135deg, #eb3349 0%, #f45c43 100%)';
             }
 
@@ -117,7 +116,7 @@
         });
 
         document.body.appendChild(btn);
-        console.log('[跳过战斗] ✅ 按钮已添加');
+        console.log('[跳过战斗] 按钮已添加');
     }
 
     // 等待页面加载完成后添加按钮
