@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         自走棋本局商店统计
 // @namespace    http://tampermonkey.net/
-// @version      0.4.0
-// @description  统计酒馆自走棋本局商店卡牌出现、刷新与购买虎符消耗，并改为监听实际使用的锦囊牌，支持分回合、拖拽缩放面板和结束下载。
+// @version      0.4.2
+// @description  统计酒馆自走棋本局商店卡牌出现、刷新与购买虎符消耗，支持分回合、拖拽缩放面板和结束下载。
 // @author       Codex
 // @match        https://game.4399iw2.com/yxxsgs/*
 // @match        *://*.sanguosha.com/10/*
@@ -27,18 +27,17 @@
     const PROXY_SEND_HOOK_FLAG = '__tavernChessStatsProxySendHooked';
     const SCAN_INTERVAL_MS = 1500;
     const PANEL_STATE_KEY = STORAGE_KEY + ':panelState';
-    const SPELL_DUPE_WINDOW_MS = 1200;
+    // const SPELL_DUPE_WINDOW_MS = 1200;
 
     // ============ 棋子和锦囊名称映射 ============
     let chessNameMap = {};
     let spellNameMap = {};
-	
-	// ID Map数据
+
     function loadMaps() {
-		// 添加Map数据
         // chessNameMap = ...	
-		// spellNameMap = ...
+		// spellNameMap = ...	
 	}
+
     function getChessName(chessId) {
         if (!chessId) return '未知棋子';
         const idStr = String(chessId);
@@ -71,19 +70,45 @@
     let latestLineupCard = null;
     let latestSpellUseCard = null;
 
+    // ===== 新增：渲染防抖和批量更新 =====
+    let renderPending = false;
+    let savePending = false;
+    let renderTimer = null;
+    let saveTimer = null;
+    let scanCount = 0;
+
+    // ===== 优化：缓存场景查找结果 =====
+    let cachedScene = null;
+    let sceneCacheTime = 0;
+    const SCENE_CACHE_TTL = 5000; // 5秒缓存
+
     function findTavernChessScene(root, visited) {
+        // 使用缓存
+        const now = Date.now();
+        if (cachedScene && now - sceneCacheTime < SCENE_CACHE_TTL) {
+            return cachedScene;
+        }
+
         if (!root || typeof root !== 'object') return null;
         const seen = visited || new WeakSet();
         if (seen.has(root)) return null;
         seen.add(root);
 
-        if (root.constructor && root.constructor.name === 'TavernChessGameScene') return root;
+        if (root.constructor && root.constructor.name === 'TavernChessGameScene') {
+            cachedScene = root;
+            sceneCacheTime = now;
+            return root;
+        }
 
         const children = root._children || root.children || root.childList;
         if (Array.isArray(children)) {
             for (const child of children) {
                 const result = findTavernChessScene(child, seen);
-                if (result) return result;
+                if (result) {
+                    cachedScene = result;
+                    sceneCacheTime = now;
+                    return result;
+                }
             }
         }
 
@@ -91,7 +116,11 @@
         if (childCount > 0 && typeof root.getChildAt === 'function') {
             for (let i = 0; i < childCount; i++) {
                 const result = findTavernChessScene(root.getChildAt(i), seen);
-                if (result) return result;
+                if (result) {
+                    cachedScene = result;
+                    sceneCacheTime = now;
+                    return result;
+                }
             }
         }
         return null;
@@ -102,6 +131,7 @@
         createPanel();
         setInterval(function () {
             try {
+                scanCount++;
                 if (!window.Laya || !Laya.stage) {
                     updateStatus('等待 Laya.stage ...');
                     return;
@@ -122,14 +152,16 @@
                     recordedSpellInstanceKeys = new Map();
                     attachManagerHooks(manager);
                     attachSelfInfoHooks(manager);
-                    // 初始记录商店（第1回合，保留）
                     recordShopGoods(manager.ShopGoods || manager.shopGoods, { source: 'attach', animate: false });
                     saveStats();
                     renderPanel();
                     console.log(LOG_PREFIX, '已连接 manager', currentStats.gameId);
                 } else {
                     attachSelfInfoHooks(manager);
-                    renderPanel();
+                    // 降低渲染频率：每3次扫描渲染一次
+                    if (scanCount % 3 === 0) {
+                        renderPanel();
+                    }
                 }
             } catch (error) {
                 console.error(LOG_PREFIX, error);
@@ -147,7 +179,7 @@
         const tableId = manager.TableID || manager.tableID || manager.tableId || '';
 
         return {
-            version: 2,
+            version: 3,
             gameId: [tableId || 'unknown', userId || 'user', now.getTime()].join('_'),
             tableId,
             userId,
@@ -228,12 +260,10 @@
         if (manager[HOOK_FLAG]) return;
         Object.defineProperty(manager, HOOK_FLAG, { value: true, configurable: true });
 
-        // ===== 记录刷新请求（参考0.1.0版本） =====
         wrapMethod(manager, 'ReqShopRefreshChess', function (original, args) {
             const isAuto = !!args[0];
             const cost = Number(safeCall(this, 'ShopRefreshCost')) || 0;
             const roundKey = getRoundKey();
-            // 直接记录刷新
             recordCost('refresh', {
                 cost: cost,
                 isAuto: isAuto,
@@ -243,13 +273,11 @@
             return original.apply(this, args);
         });
 
-        // ===== 记录购买请求（参考0.1.0版本） =====
         wrapMethod(manager, 'ReqShopBuyChess', function (original, args) {
             const goodsID = args[0];
             const cost = typeof this.GetShopBuyCost === 'function' ? this.GetShopBuyCost(goodsID) : 0;
             const goods = typeof this.getShopGoodsByGoodsID === 'function' ? this.getShopGoodsByGoodsID(goodsID) : null;
             const roundKey = getRoundKey();
-            // 直接记录购买
             const normalizedGoods = normalizeGoods(goods);
             latestBuyCard = normalizedGoods || latestBuyCard;
             recordCost('buy', {
@@ -262,12 +290,9 @@
             return original.apply(this, args);
         });
 
-        // ===== 记录商店快照 =====
-        // 监听 updateShopGoods - 只记录 animate: true 的快照（第1回合除外）
         wrapMethod(manager, 'updateShopGoods', function (original, args) {
             const result = original.apply(this, args);
             const roundKey = getRoundKey();
-            // 第1回合：全部保留；第2回合起：只保留 animate: true
             if (roundKey === '1') {
                 recordShopGoods(args[0], { source: 'updateShopGoods', animate: args[1] });
             } else if (args[1] === true) {
@@ -277,7 +302,6 @@
             return result;
         });
 
-        // 刷新响应 - 记录快照
         wrapMethod(manager, 'onRespShopRefreshChess', function (original, args) {
             const result = original.apply(this, args);
             const proto = args[0] && args[0].Protocol && args[0].Protocol.ProtoData;
@@ -287,7 +311,6 @@
             return result;
         });
 
-        // ===== 记录锦囊使用 =====
         const managerCtor = (typeof window !== 'undefined' && window.TavernChessGameManager) || null;
         const spellHookTarget = managerCtor && managerCtor.prototype ? managerCtor.prototype : manager;
 
@@ -323,7 +346,9 @@
             }
 
             if (payload) {
-                updateLatestSpellUse(payload, { source: 'onRespChessUseSpell', spellGoodsID: spellGoodsID, round: getRoundKey() });
+                // ===== 修复：直接使用 payload 更新 spells =====
+                recordSpellDirect(payload, { source: 'onRespChessUseSpell', spellGoodsID: spellGoodsID, round: getRoundKey() });
+                latestSpellUseCard = payload;
             }
             pendingSpellUses = pendingSpellUses.filter(function (entry) {
                 return entry.goodsID !== spellGoodsID;
@@ -343,12 +368,13 @@
             manager.on(spellEventName, manager, function (chessID, uniqueID, spellID) {
                 const payload = buildSpellPayloadFromEvent(manager, spellID, chessID);
                 if (payload) {
-                    updateLatestSpellUse(payload, {
+                    recordSpellDirect(payload, {
                         source: 'managerEvent:' + spellEventName,
                         spellID: spellID,
                         chessID: chessID,
                         round: getRoundKey()
                     });
+                    latestSpellUseCard = payload;
                 }
             });
 
@@ -356,11 +382,12 @@
                 if (!spellGoodsID) return;
                 const payload = resolveSpellUsePayload(manager, spellGoodsID);
                 if (payload) {
-                    updateLatestSpellUse(payload, {
+                    recordSpellDirect(payload, {
                         source: 'managerEvent:' + respSpellEventName,
                         spellGoodsID: spellGoodsID,
                         round: getRoundKey()
                     });
+                    latestSpellUseCard = payload;
                 }
             });
 
@@ -394,7 +421,6 @@
             Object.defineProperty(proxy, PROXY_SEND_HOOK_FLAG, { value: true, configurable: true });
         }
 
-        // 游戏结束自动导出
         ['onNotifyChessGameOver', 'onNotifyChessGameResult', 'onNtfChessGameOverMsg'].forEach(function (name) {
             wrapMethod(manager, name, function (original, args) {
                 const result = original.apply(this, args);
@@ -405,6 +431,56 @@
 
         updateStatus('统计中：' + ((currentStats && currentStats.tableId) || '未知房间'));
     }
+
+
+	// ===== 修改后的 recordSpellDirect =====
+	function recordSpellDirect(payload, context) {
+		if (!currentStats || !payload || typeof payload !== 'object') return;
+
+		const normalized = normalizeGoods(payload);
+		if (!normalized) return;
+
+		// 获取 spellKey
+		const spellKey = String(normalized.spellID || normalized.chessID || normalized.cardID || normalized.goodsID || 'unknown');
+		if (spellKey === 'unknown' || spellKey === '0') return;
+
+		// ===== 只记录在 spellNameMap 中有名称的锦囊 =====
+		if (!spellNameMap[spellKey]) {
+			return;  // 未知锦囊跳过
+		}
+
+		const spellName = spellNameMap[spellKey];
+
+		// ===== 每次都记录，不去重 =====
+		if (!currentStats.spells[spellKey]) {
+			currentStats.spells[spellKey] = {
+				count: 0,
+				name: spellName,
+				sample: normalized,
+				times: []
+			};
+		}
+		currentStats.spells[spellKey].count += 1;
+		currentStats.spells[spellKey].times.push(new Date().toISOString());
+
+		// 限制 times 数组大小（防止无限增长）
+		if (currentStats.spells[spellKey].times.length > 200) {
+			currentStats.spells[spellKey].times = currentStats.spells[spellKey].times.slice(-200);
+		}
+
+		// 更新最近使用
+		latestSpellUseCard = normalized;
+
+		// 记录事件
+		currentStats.events.push({
+			type: 'spell',
+			at: new Date().toISOString(),
+			payload: { context: context || {}, spell: normalized }
+		});
+		trimEvents();
+		saveStats();
+		renderPanel();
+	}
 
     function attachSelfInfoHooks(manager) {
         const selfInfo = manager && (manager.selfInfo || manager.SelfInfo);
@@ -490,7 +566,6 @@
         try { return obj[prop]; } catch (error) { return 0; }
     }
 
-    // ===== 记录刷新/购买消耗 =====
     function recordCost(type, payload) {
         if (!currentStats) return;
         const cost = Number(payload && payload.cost) || 0;
@@ -526,6 +601,7 @@
         target.details.push(entry);
         total.details.push(entry);
 
+        // 限制细节数组大小
         if (target.details.length > 50) target.details = target.details.slice(-50);
         if (total.details.length > 50) total.details = total.details.slice(-50);
 
@@ -535,15 +611,11 @@
         renderPanel();
     }
 
-    // ===== 记录商店快照 =====
     function recordShopGoods(shopGoods, context) {
         if (!currentStats || !Array.isArray(shopGoods)) return;
 
         const roundKey = getRoundKey();
 
-        // 过滤规则：
-        // 1. 第1回合：全部保留
-        // 2. 第2回合起：只保留 animate: true
         if (roundKey !== '1' && context.animate !== true) {
             return;
         }
@@ -556,7 +628,6 @@
         recordCardStateSnapshot('shop', goodsList, { source: context.source || 'shop', round: roundKey });
         if (goodsList.length === 0) return;
 
-        // 去重：检查是否与上一次记录相同
         const signature = roundKey + ':' + goodsList.map(function (goods) {
             return (goods.goodsID || 0) + ':' + (goods.chessID || 0) + ':' + (goods.spellID || 0);
         }).join('|');
@@ -572,8 +643,8 @@
         roundStats.shop.details.push(snapshot);
         currentStats.totals.shop.details.push(snapshot);
 
-        if (roundStats.shop.details.length > 50) roundStats.shop.details = roundStats.shop.details.slice(-50);
-        if (currentStats.totals.shop.details.length > 50) currentStats.totals.shop.details = currentStats.totals.shop.details.slice(-50);
+        if (roundStats.shop.details.length > 30) roundStats.shop.details = roundStats.shop.details.slice(-30);
+        if (currentStats.totals.shop.details.length > 30) currentStats.totals.shop.details = currentStats.totals.shop.details.slice(-30);
 
         goodsList.forEach(function (goods) {
             addAppearance(roundStats.shop.appearances, goods);
@@ -591,7 +662,10 @@
         const key = String(goods.spellID ? 'spell:' + goods.spellID : goods.chessID || goods.cardID || goods.goodsID || goods.name || 'unknown');
         if (!bucket[key]) bucket[key] = { count: 0, sample: goods, times: [] };
         bucket[key].count += 1;
-        bucket[key].times.push(new Date().toISOString());
+        // 限制 times 数组大小
+        if (bucket[key].times.length < 10) {
+            bucket[key].times.push(new Date().toISOString());
+        }
     }
 
     function recordCardStateSnapshot(area, cards, context) {
@@ -610,13 +684,15 @@
         currentStats.cardStates[area] = normalized;
         const roundStats = getRoundStats(getRoundKey());
         roundStats.cardStates[area] = normalized;
+
+        // 减少快照数量：只保留最近50条
         currentStats.snapshots.push(Object.assign({
             at: new Date().toISOString(),
             round: getRoundKey(),
             area: area,
             cards: normalized
         }, context || {}));
-        if (currentStats.snapshots.length > 200) currentStats.snapshots = currentStats.snapshots.slice(-200);
+        if (currentStats.snapshots.length > 50) currentStats.snapshots = currentStats.snapshots.slice(-50);
         saveStats();
         renderPanel();
     }
@@ -677,65 +753,34 @@
         };
     }
 
-    function recordSpell(spellLike, context) {
-        if (!currentStats || !spellLike || typeof spellLike !== 'object') return;
-        const normalized = normalizeGoods(spellLike);
-        const spellKey = normalized && (normalized.spellID || normalized.chessID || normalized.cardID || normalized.goodsID || 0);
-        if (!normalized || !spellKey) return;
-
-        const dedupeKey = [getRoundKey(), normalized.spellID || 0, normalized.chessID || 0, normalized.goodsID || 0, normalized.cardID || 0].join(':');
-        const now = Date.now();
-        for (const [key, ts] of recordedSpellInstanceKeys.entries()) {
-            if (now - ts > SPELL_DUPE_WINDOW_MS) {
-                recordedSpellInstanceKeys.delete(key);
-            }
-        }
-        if (recordedSpellInstanceKeys.has(dedupeKey)) return;
-        recordedSpellInstanceKeys.set(dedupeKey, now);
-
-        const key = String(spellKey);
-        if (!currentStats.spells[key]) {
-            currentStats.spells[key] = { count: 0, sample: normalized, times: [] };
-        }
-        currentStats.spells[key].count += 1;
-        currentStats.spells[key].times.push(new Date().toISOString());
-
-        currentStats.events.push({ type: 'spell', at: new Date().toISOString(), payload: { context: context || {}, spell: normalized } });
-        trimEvents();
-        saveStats();
-        renderPanel();
-    }
-
-    function updateLatestSpellUse(payload, context) {
-        if (!payload || typeof payload !== 'object') return;
-        latestSpellUseCard = payload;
-        if (payload.spellID || payload.chessID || payload.cardID || payload.goodsID) {
-            const normalized = normalizeGoods(payload);
-            if (normalized) {
-                const dedupeKey = [getRoundKey(), normalized.spellID || 0, normalized.chessID || 0, normalized.goodsID || 0, normalized.cardID || 0].join(':');
-                const now = Date.now();
-                for (const [key, ts] of recordedSpellInstanceKeys.entries()) {
-                    if (now - ts > SPELL_DUPE_WINDOW_MS) {
-                        recordedSpellInstanceKeys.delete(key);
-                    }
-                }
-                if (!recordedSpellInstanceKeys.has(dedupeKey)) {
-                    recordedSpellInstanceKeys.set(dedupeKey, now);
-                    recordSpell(normalized, context);
-                }
-            }
-        }
-    }
+    // ===== 移除旧的 recordSpell 函数，使用 recordSpellDirect 替代 =====
 
     function trimEvents() {
-        if (currentStats.events.length > 600) currentStats.events.splice(0, currentStats.events.length - 600);
+        // 减少事件保留数量到300
+        if (currentStats.events.length > 300) currentStats.events.splice(0, currentStats.events.length - 300);
         currentStats.updatedAt = new Date().toISOString();
     }
 
+    // ===== 优化：防抖保存 =====
     function saveStats() {
         if (!currentStats) return;
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(currentStats));
-        localStorage.setItem(STORAGE_KEY + ':' + currentStats.gameId, JSON.stringify(currentStats));
+        if (savePending) return;
+        savePending = true;
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(function() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(currentStats));
+                localStorage.setItem(STORAGE_KEY + ':' + currentStats.gameId, JSON.stringify(currentStats));
+            } catch (e) {
+                // 如果存储失败（可能数据太大），只保存当前对局数据
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(currentStats));
+                } catch (e2) {
+                    console.warn(LOG_PREFIX, '保存失败，数据可能过大');
+                }
+            }
+            savePending = false;
+        }, 500);
     }
 
     function createPanel() {
@@ -871,20 +916,45 @@
         if (panelStatus) panelStatus.textContent = text;
     }
 
+    // ===== 优化：缓存渲染用的数据，避免重复计算 =====
+    let cachedRenderData = null;
+    let renderDataVersion = 0;
+
     function renderPanel() {
         if (!panelBody) return;
         if (!currentStats) {
             panelBody.innerHTML = '<div>尚未进入自走棋对局。</div>';
             return;
         }
+
+        // 检查数据是否变化
+        const currentVersion = currentStats.updatedAt;
+        if (renderDataVersion === currentVersion && renderDataVersion !== 0) {
+            return; // 数据未变化，跳过渲染
+        }
+
+        // 防抖：延迟渲染
+        if (renderPending) return;
+        renderPending = true;
+        clearTimeout(renderTimer);
+        renderTimer = setTimeout(function() {
+            doRenderPanel();
+            renderPending = false;
+        }, 100);
+    }
+
+    function doRenderPanel() {
+        if (!panelBody || !currentStats) return;
+
         const total = currentStats.totals;
         const roundKey = getRoundKey();
         const roundStats = currentStats.rounds[roundKey] || createRoundStats('当前回合');
-        const topCards = getTopEntries(currentStats.shopAppearances, 8);
+        const topCards = getTopEntries(currentStats.shopAppearances, 6);
         const topSpells = getTopEntries(currentStats.spells, 6);
-        const handCards = (currentStats.cardStates && currentStats.cardStates.hand || []).slice(0, 12);
-        const lineupCards = (currentStats.cardStates && currentStats.cardStates.lineup || []).slice(0, 12);
-        const shopCards = (currentStats.cardStates && currentStats.cardStates.shop || []).slice(0, 12);
+        const handCards = (currentStats.cardStates && currentStats.cardStates.hand || []).slice(0, 8);
+        const lineupCards = (currentStats.cardStates && currentStats.cardStates.lineup || []).slice(0, 8);
+        const shopCards = (currentStats.cardStates && currentStats.cardStates.shop || []).slice(0, 8);
+
         panelBody.innerHTML = [
             '<b style="display:block;margin-top:6px;">最近操作</b>',
             '<div><b>购买</b></div>' + renderCardItem(latestBuyCard),
@@ -894,7 +964,7 @@
             '<div>当前：第 ' + escapeHtml(roundKey) + ' 回合</div>',
             '<hr style="border:0;border-top:1px solid rgba(255,255,255,.12);margin:6px 0;">',
             '<b>整局</b>',
-            '<div>刷新：' + total.refresh.count + ' 次 / ' + total.refresh.hufu + ' 虎符（免费 ' + total.refresh.freeCount + '，自动 ' + total.refresh.autoCount + '）</div>',
+            '<div>刷新：' + total.refresh.count + ' 次 / ' + total.refresh.hufu + ' 虎符</div>',
             '<div>购买：' + total.buy.count + ' 次 / ' + total.buy.hufu + ' 虎符</div>',
             '<div>商店快照：' + total.shop.snapshots + ' 次</div>',
             '<b style="display:block;margin-top:6px;">本回合</b>',
@@ -905,11 +975,13 @@
             '<div><b>手牌区</b></div>' + renderCardList(handCards),
             '<div><b>上阵区</b></div>' + renderCardList(lineupCards),
             '<div><b>商店区</b></div>' + renderCardList(shopCards),
-            '<b style="display:block;margin-top:6px;">本局锦囊</b>',
-            renderEntryList(topSpells),
-            '<b style="display:block;margin-top:6px;">卡牌出现 Top</b>',
-            renderEntryList(topCards)
+            // '<b style="display:block;margin-top:6px;">本局锦囊</b>',
+            // renderEntryList(topSpells),
+            // '<b style="display:block;margin-top:6px;">卡牌出现 Top</b>',
+            // renderEntryList(topCards)
         ].join('');
+
+        renderDataVersion = currentStats.updatedAt;
     }
 
     function getTopEntries(bucket, limit) {
@@ -988,5 +1060,5 @@
     }
 
     waitAndAttach();
-    console.log(LOG_PREFIX, '脚本 v0.3.0 已启动');
+    console.log(LOG_PREFIX, '脚本 v0.5.0 已启动 - 性能优化版');
 })();
