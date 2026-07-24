@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.0.2
 // @description  输入刷新次数，一键批量刷新商店（无任何条件检查）
-// @author       Codex
+// @author       caoyang-sufe
 // @match        https://game.4399iw2.com/yxxsgs/*
 // @match        *://*.sanguosha.com/10/*
 // @match        *://*.sanguosha.com/x/*
