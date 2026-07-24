@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         自走棋本局商店统计
+// @name         自走棋小抄
 // @namespace    http://tampermonkey.net/
 // @version      0.4.3
 // @description  统计酒馆自走棋本局商店卡牌出现、刷新与购买虎符消耗，支持分回合、拖拽缩放面板和结束下载。
-// @author       Codex
+// @author       caoyang-sufe
 // @match        https://game.4399iw2.com/yxxsgs/*
 // @match        *://*.sanguosha.com/10/*
 // @match        *://*.sanguosha.com/x/*
@@ -19,7 +19,7 @@
 (function () {
     'use strict';
 
-    const LOG_PREFIX = '[自走棋统计]';
+    const LOG_PREFIX = '[自走棋小抄]';
     const STORAGE_KEY = 'tavernChessGameStats';
     const PANEL_ID = 'tavern-chess-stats-panel';
     const HOOK_FLAG = '__tavernChessStatsHooked';
@@ -69,7 +69,7 @@
 	let latestBuyCard = null;
 	let latestLineupCard = null;
 	let latestSpellUseCard = null;
-	let spellUseTotalCount = 0;  // ===== 新增这行 =====
+	let spellUseTotalCount = 0;
 
 	// ===== 新增：渲染防抖和批量更新 =====
 	let renderPending = false;
@@ -237,7 +237,7 @@
             spellID: normalizedSpellID,
             chessID: normalizedChessID,
             name: name,
-            raw: { spellID: normalizedSpellID, chessID: normalizedChessID }
+            raw: {spellID: normalizedSpellID, chessID: normalizedChessID }
         };
 
         const handCards = Array.isArray(manager && (manager.HandChess || manager.handChess))
@@ -345,7 +345,6 @@
                 });
                 return result;
             }
-
             if (payload) {
                 // ===== 修复：直接使用 payload 更新 spells =====
                 recordSpellDirect(payload, { source: 'onRespChessUseSpell', spellGoodsID: spellGoodsID, round: getRoundKey() });
@@ -751,8 +750,6 @@
         };
     }
 
-    // ===== 移除旧的 recordSpell 函数，使用 recordSpellDirect 替代 =====
-
     function trimEvents() {
         // 减少事件保留数量到300
         if (currentStats.events.length > 300) currentStats.events.splice(0, currentStats.events.length - 300);
@@ -947,8 +944,8 @@
 		const total = currentStats.totals;
 		const roundKey = getRoundKey();
 		const roundStats = currentStats.rounds[roundKey] || createRoundStats('当前回合');
-		const topCards = getTopEntries(currentStats.shopAppearances, 6);
-		const topSpells = getTopEntries(currentStats.spells, 6);
+		// const topCards = getTopEntries(currentStats.shopAppearances, 6);
+		// const topSpells = getTopEntries(currentStats.spells, 6);
 		const handCards = (currentStats.cardStates && currentStats.cardStates.hand || []).slice(0, 8);
 		const lineupCards = (currentStats.cardStates && currentStats.cardStates.lineup || []).slice(0, 8);
 		const shopCards = (currentStats.cardStates && currentStats.cardStates.shop || []).slice(0, 8);

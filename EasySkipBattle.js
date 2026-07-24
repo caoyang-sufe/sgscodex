@@ -16,3 +16,4 @@
         //scene.onEndRecruitJump?.(); // 如需结束招募，取消注释这行
     }
 })();
+
