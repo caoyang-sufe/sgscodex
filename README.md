@@ -15,7 +15,7 @@
 - EasyAutoRefresh.js: 执行后自动刷新1次
 - EasyBuy.js: 自动购买卡牌
 - EasyClick.js: 执行后启动页端连点器（跟随鼠标）
-- EasySell.js: 自动售卖卡爱
+- EasySell.js: 自动遣散卡牌
 - EasySkipBattle.js: 执行后跳过战斗
 
 ---
