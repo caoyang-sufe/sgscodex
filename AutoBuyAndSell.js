@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      2.0.0
 // @description  自动刷新商店 + 自动购买指定卡牌 + 自动遣散手牌
-// @author       Codex
+// @author       caoyang-sufe
 // @match        https://game.4399iw2.com/yxxsgs/*
 // @match        *://*.sanguosha.com/10/*
 // @match        *://*.sanguosha.com/x/*

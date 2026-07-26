@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.0
 // @description  点击按钮跳过自走棋战斗动画
-// @author       caoyang
+// @author       caoyang-sufe
 // @match        *://*.sanguosha.com/*
 // @match        https://game.4399iw2.com/yxxsgs/*
 // @grant        none
