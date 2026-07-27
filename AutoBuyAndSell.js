@@ -1,9 +1,9 @@
 // ==UserScript==
-// @name         自走棋自动刷牌助手
+// @name         自走棋自动寻牌助手
 // @namespace    http://tampermonkey.net/
-// @version      2.0.0
-// @description  自动刷新商店 + 自动购买指定卡牌 + 自动遣散手牌
-// @author       caoyang-sufe
+// @version      3.1.0
+// @description  自动刷新商店寻找指定卡牌，支持自动购买和自动售卖
+// @author       Codex
 // @match        https://game.4399iw2.com/yxxsgs/*
 // @match        *://*.sanguosha.com/10/*
 // @match        *://*.sanguosha.com/x/*
@@ -20,33 +20,7 @@
     'use strict';
 
     // ============================================================
-    // 配置
-    // ============================================================
-    const CONFIG = {
-        // 要购买的卡牌ID列表（留空则购买所有）
-        buyTargets: [],
-        // 是否购买所有卡牌（无视目标列表）
-        buyAll: false,
-        // 购买后是否自动遣散（卖掉）
-        autoSell: false,
-        // 保留手牌数量（超过此数量自动遣散）
-        maxHandSize: 10,
-        // 遣散时保留的卡牌ID列表（不遣散）
-        keepChessIds: [],
-        // 刷新间隔（毫秒）
-        refreshInterval: 300,
-        // 最大刷新次数（0=无限）
-        maxRefreshes: 0,
-        // 是否启用自动购买
-        autoBuy: true,
-        // 是否启用自动遣散
-        autoSellEnabled: true,
-        // 是否在战斗阶段暂停
-        pauseInBattle: true
-    };
-
-    // ============================================================
-    // 获取管理器（已验证可行的方法）
+    // 获取游戏管理器
     // ============================================================
     function getManager() {
         try {
@@ -88,7 +62,7 @@
     }
 
     // ============================================================
-    // 核心功能 - 刷新商店
+    // 刷新商店
     // ============================================================
     function refreshShop() {
         var m = getManager();
@@ -98,33 +72,27 @@
     }
 
     // ============================================================
-    // 核心功能 - 购买卡牌
+    // 购买卡牌
     // ============================================================
     function buyChess(goodsID) {
         var m = getManager();
         if (!m) return false;
-        if (typeof m.ReqShopBuyChess === 'function') {
-            m.ReqShopBuyChess(goodsID);
-            return true;
-        }
-        return false;
+        m.ReqShopBuyChess(goodsID);
+        return true;
     }
 
     // ============================================================
-    // 核心功能 - 遣散手牌
+    // 遣散卡牌
     // ============================================================
     function sellChess(goodsID) {
         var m = getManager();
         if (!m) return false;
-        if (typeof m.ReqShopRecycleChess === 'function') {
-            m.ReqShopRecycleChess(goodsID);
-            return true;
-        }
-        return false;
+        m.ReqShopRecycleChess(goodsID);
+        return true;
     }
 
     // ============================================================
-    // 获取商店卡牌列表
+    // 获取商店列表
     // ============================================================
     function getShopGoods() {
         var m = getManager();
@@ -142,273 +110,236 @@
     }
 
     // ============================================================
-    // 获取当前阶段
+    // 查找商店中是否存在目标卡牌（返回所有匹配的卡牌）
     // ============================================================
-    function getPhase() {
-        var m = getManager();
-        if (!m) return null;
-        return m.Phase || m.phase;
-    }
-
-    // ============================================================
-    // 获取金币
-    // ============================================================
-    function getCoin() {
-        var m = getManager();
-        if (!m) return 0;
-        return m.CoinNum || 0;
-    }
-
-    // ============================================================
-    // 检查是否应该购买某张卡牌
-    // ============================================================
-    function shouldBuy(goods) {
-        if (!goods) return false;
-        if (CONFIG.buyAll) return true;
-        if (!CONFIG.buyTargets || CONFIG.buyTargets.length === 0) return true;
-
-        var chessId = String(goods.chessID || goods.cardID || '');
-        var spellId = String(goods.spellID || '');
-        var goodsId = String(goods.goodsID || '');
-
-        return CONFIG.buyTargets.some(function(target) {
-            return target === chessId || target === spellId || target === goodsId;
-        });
-    }
-
-    // ============================================================
-    // 检查是否应该保留某张手牌（不遣散）
-    // ============================================================
-    function shouldKeep(hand) {
-        if (!hand) return false;
-        if (!CONFIG.keepChessIds || CONFIG.keepChessIds.length === 0) return false;
-
-        var chessId = String(hand.chessID || hand.cardID || '');
-        var spellId = String(hand.spellID || '');
-        var goodsId = String(hand.goodsID || '');
-
-        return CONFIG.keepChessIds.some(function(target) {
-            return target === chessId || target === spellId || target === goodsId;
-        });
-    }
-
-    // ============================================================
-    // 判断是否为锦囊牌
-    // ============================================================
-    function isSpellCard(card) {
-        return card && card.spellID && !card.chessID;
-    }
-
-    // ============================================================
-    // 自动购买逻辑
-    // ============================================================
-    function autoBuy() {
-        if (!CONFIG.autoBuy) return 0;
-
-        var phase = getPhase();
-        if (CONFIG.pauseInBattle && (phase === 'InBattle' || phase === 'StartBattle' || phase === 3)) {
-            return 0;
-        }
-
-        var shopGoods = getShopGoods();
-        var bought = 0;
-
-        for (var i = 0; i < shopGoods.length; i++) {
-            var goods = shopGoods[i];
-            if (!goods) continue;
-
-            if (shouldBuy(goods)) {
-                var goodsID = goods.goodsID || goods.GoodsID;
-                if (goodsID) {
-                    var result = buyChess(goodsID);
-                    if (result) {
-                        bought++;
-                        console.log('[自动购买] ✅ 已购买:', goodsID, 'chessID:', goods.chessID, 'spellID:', goods.spellID);
-                    }
-                }
+    function findTargetsInShop(targetId) {
+        var shop = getShopGoods();
+        targetId = String(targetId);
+        var results = [];
+        for (var i = 0; i < shop.length; i++) {
+            var card = shop[i];
+            if (!card) continue;
+            var chessId = String(card.chessID || card.cardID || '');
+            var spellId = String(card.spellID || '');
+            var goodsId = String(card.goodsID || '');
+            if (chessId === targetId || spellId === targetId || goodsId === targetId) {
+                results.push({
+                    index: i,
+                    card: card,
+                    goodsID: card.goodsID || card.GoodsID
+                });
             }
         }
-
-        return bought;
-    }
-
-    // ============================================================
-    // 自动遣散逻辑
-    // ============================================================
-    function autoSell() {
-        if (!CONFIG.autoSellEnabled) return 0;
-
-        var phase = getPhase();
-        if (CONFIG.pauseInBattle && (phase === 'InBattle' || phase === 'StartBattle' || phase === 3)) {
-            return 0;
-        }
-
-        var handChess = getHandChess();
-        var handSize = handChess.length;
-
-        // 如果手牌数量未超过上限，不遣散
-        if (handSize <= CONFIG.maxHandSize) return 0;
-
-        var sold = 0;
-        // 从后往前遍历，优先遣散新获得的
-        for (var i = handChess.length - 1; i >= 0; i--) {
-            var hand = handChess[i];
-            if (!hand) continue;
-
-            // 检查是否应该保留
-            if (shouldKeep(hand)) continue;
-
-            // 如果是锦囊牌，默认不遣散（可以配置）
-            if (isSpellCard(hand)) continue;
-
-            var goodsID = hand.goodsID || hand.GoodsID;
-            if (goodsID) {
-                var result = sellChess(goodsID);
-                if (result) {
-                    sold++;
-                    console.log('[自动遣散] ✅ 已遣散:', goodsID, 'chessID:', hand.chessID);
-                    // 手牌数量减少，更新判断
-                    if (getHandChess().length <= CONFIG.maxHandSize) break;
-                }
-            }
-        }
-
-        return sold;
-    }
-
-    // ============================================================
-    // 执行一轮完整操作（刷新 + 购买 + 遣散）
-    // ============================================================
-    function doCycle() {
-        var results = {
-            refresh: false,
-            bought: 0,
-            sold: 0,
-            handSize: 0,
-            coin: 0
-        };
-
-        // 1. 先购买
-        results.bought = autoBuy();
-
-        // 2. 再遣散
-        results.sold = autoSell();
-
-        // 3. 最后刷新
-        results.refresh = refreshShop();
-
-        results.handSize = getHandChess().length;
-        results.coin = getCoin();
-
         return results;
     }
 
     // ============================================================
-    // 批量运行
+    // 核心功能1: 自动寻牌（刷新N次，记录找到并购买的次数）
     // ============================================================
-    var isRunning = false;
-    var stopFn = null;
-    var cycleCount = 0;
-    var totalBought = 0;
-    var totalSold = 0;
+    function autoFindAndBuy(targetId, maxRefreshes, onProgress, onComplete) {
+        targetId = String(targetId);
+        maxRefreshes = maxRefreshes || 50;
+        var refreshCount = 0;
+        var foundCount = 0;
+        var totalBought = 0;
+        var isStopped = false;
+        var timer = null;
 
-    function startAutoRun(count, interval) {
-        if (isRunning) return;
-
-        count = count || 0; // 0=无限
-        interval = interval || CONFIG.refreshInterval;
-
-        isRunning = true;
-        cycleCount = 0;
-        totalBought = 0;
-        totalSold = 0;
-
-        console.log('🔄 开始自动刷牌...');
-        console.log('  目标次数:', count || '无限');
-        console.log('  间隔:', interval, 'ms');
-        console.log('  自动购买:', CONFIG.autoBuy ? '✅' : '❌');
-        console.log('  自动遣散:', CONFIG.autoSellEnabled ? '✅' : '❌');
-
-        function doCycle() {
-            if (!isRunning) return;
-
-            // 检查最大次数
-            if (count > 0 && cycleCount >= count) {
-                stopAutoRun('达到目标次数');
+        function doNext() {
+            if (isStopped) {
+                if (timer) clearTimeout(timer);
+                if (onComplete) {
+                    onComplete({
+                        success: true,
+                        reason: '已停止',
+                        refreshCount: refreshCount,
+                        foundCount: foundCount,
+                        totalBought: totalBought,
+                        targetId: targetId
+                    });
+                }
                 return;
             }
 
-            cycleCount++;
-            var results = doCycle();
-
-            // 统计
-            if (results.bought > 0) totalBought += results.bought;
-            if (results.sold > 0) totalSold += results.sold;
-
-            // 更新UI
-            updateUIStatus(
-                '循环 #' + cycleCount +
-                ' | 购买: ' + results.bought +
-                ' | 遣散: ' + results.sold +
-                ' | 手牌: ' + results.handSize +
-                ' | 金币: ' + results.coin
-            );
-
-            // 更新统计
-            updateUIStats(cycleCount, totalBought, totalSold);
-
-            // 如果还在运行，继续下一轮
-            if (isRunning) {
-                timer = setTimeout(doCycle, interval);
+            if (refreshCount >= maxRefreshes) {
+                if (onComplete) {
+                    onComplete({
+                        success: true,
+                        reason: '达到目标刷新次数',
+                        refreshCount: refreshCount,
+                        foundCount: foundCount,
+                        totalBought: totalBought,
+                        targetId: targetId
+                    });
+                }
+                return;
             }
+
+            refreshCount++;
+
+            // 检查商店中是否有目标
+            var targets = findTargetsInShop(targetId);
+            var foundInThisRound = 0;
+
+            // 购买所有匹配的卡牌
+            for (var i = 0; i < targets.length; i++) {
+                var result = buyChess(targets[i].goodsID);
+                if (result) {
+                    foundInThisRound++;
+                    totalBought++;
+                }
+            }
+
+            if (foundInThisRound > 0) {
+                foundCount += foundInThisRound;
+                console.log('🎯 第' + refreshCount + '次刷新找到 ' + foundInThisRound + ' 张目标卡牌 (累计:' + foundCount + ')');
+            }
+
+            // 刷新商店（继续寻找）
+            refreshShop();
+
+            if (onProgress) {
+                onProgress({
+                    current: refreshCount,
+                    total: maxRefreshes,
+                    foundInRound: foundInThisRound,
+                    foundCount: foundCount,
+                    totalBought: totalBought
+                });
+            }
+
+            // 继续下一轮
+            timer = setTimeout(doNext, 300);
         }
 
-        var timer = setTimeout(doCycle, 100);
+        // 开始执行
+        doNext();
 
-        stopFn = function() {
-            if (timer) {
-                clearTimeout(timer);
-                timer = null;
-            }
-            isRunning = false;
+        // 返回停止函数
+        return function() {
+            isStopped = true;
+            if (timer) clearTimeout(timer);
         };
-
-        return stopFn;
-    }
-
-    function stopAutoRun(reason) {
-        if (stopFn) {
-            stopFn();
-            stopFn = null;
-        }
-        isRunning = false;
-        console.log('⏹ 已停止:', reason || '手动停止');
-        console.log('  总循环:', cycleCount, '次');
-        console.log('  总购买:', totalBought, '张');
-        console.log('  总遣散:', totalSold, '张');
-        updateUIStatus('已停止: ' + (reason || '手动') + ' (循环:' + cycleCount + ' 购买:' + totalBought + ' 遣散:' + totalSold + ')');
-        updateUIStats(cycleCount, totalBought, totalSold);
-        resetUIProgress();
-    }
-
-    function toggleAutoRun() {
-        if (isRunning) {
-            stopAutoRun('手动停止');
-        } else {
-            var count = parseInt(document.getElementById('tavern-auto-run-count')?.value) || 0;
-            var interval = parseInt(document.getElementById('tavern-auto-run-interval')?.value) || CONFIG.refreshInterval;
-            startAutoRun(count, interval);
-        }
     }
 
     // ============================================================
-    // UI 面板
+    // 核心功能2: 自动寻牌并售卖（刷新N次，找到目标卡牌后购买并立即售卖）
+    // ============================================================
+    function autoFindBuyAndSell(targetId, maxRefreshes, onProgress, onComplete) {
+        targetId = String(targetId);
+        maxRefreshes = maxRefreshes || 50;
+        var refreshCount = 0;
+        var foundCount = 0;
+        var totalBought = 0;
+        var totalSold = 0;
+        var isStopped = false;
+        var timer = null;
+
+        function doNext() {
+            if (isStopped) {
+                if (timer) clearTimeout(timer);
+                if (onComplete) {
+                    onComplete({
+                        success: true,
+                        reason: '已停止',
+                        refreshCount: refreshCount,
+                        foundCount: foundCount,
+                        totalBought: totalBought,
+                        totalSold: totalSold,
+                        targetId: targetId
+                    });
+                }
+                return;
+            }
+
+            if (refreshCount >= maxRefreshes) {
+                if (onComplete) {
+                    onComplete({
+                        success: true,
+                        reason: '达到目标刷新次数',
+                        refreshCount: refreshCount,
+                        foundCount: foundCount,
+                        totalBought: totalBought,
+                        totalSold: totalSold,
+                        targetId: targetId
+                    });
+                }
+                return;
+            }
+
+            refreshCount++;
+
+            // 检查商店中是否有目标
+            var targets = findTargetsInShop(targetId);
+            var foundInThisRound = 0;
+
+            // 购买并售卖所有匹配的卡牌
+            for (var i = 0; i < targets.length; i++) {
+                var goodsID = targets[i].goodsID;
+                var buyResult = buyChess(goodsID);
+                if (buyResult) {
+                    foundInThisRound++;
+                    totalBought++;
+
+                    // 购买后延迟一下再售卖
+                    setTimeout(function(gid) {
+                        var hand = getHandChess();
+                        // 从手牌中找刚购买的卡牌并售卖
+                        for (var j = hand.length - 1; j >= 0; j--) {
+                            var card = hand[j];
+                            if (!card) continue;
+                            var cardGoodsID = card.goodsID || card.GoodsID;
+                            if (cardGoodsID === gid) {
+                                sellChess(gid);
+                                totalSold++;
+                                break;
+                            }
+                        }
+                    }, 100, goodsID);
+                }
+            }
+
+            if (foundInThisRound > 0) {
+                foundCount += foundInThisRound;
+                console.log('🎯 第' + refreshCount + '次刷新找到 ' + foundInThisRound + ' 张目标卡牌 (累计:' + foundCount + ')');
+            }
+
+            // 刷新商店（继续寻找）
+            refreshShop();
+
+            if (onProgress) {
+                onProgress({
+                    current: refreshCount,
+                    total: maxRefreshes,
+                    foundInRound: foundInThisRound,
+                    foundCount: foundCount,
+                    totalBought: totalBought,
+                    totalSold: totalSold
+                });
+            }
+
+            // 继续下一轮
+            timer = setTimeout(doNext, 400);
+        }
+
+        // 开始执行
+        doNext();
+
+        // 返回停止函数
+        return function() {
+            isStopped = true;
+            if (timer) clearTimeout(timer);
+        };
+    }
+
+    // ============================================================
+    // 创建UI面板
     // ============================================================
     function createUI() {
-        if (document.getElementById('tavern-auto-run-panel')) return;
+        if (document.getElementById('tavern-auto-find-panel')) return;
 
         var panel = document.createElement('div');
-        panel.id = 'tavern-auto-run-panel';
+        panel.id = 'tavern-auto-find-panel';
         panel.style.cssText = [
             'position:fixed',
             'top:100px',
@@ -420,8 +351,8 @@
             'border-radius:10px',
             'padding:16px 20px',
             'font:12px/1.5 Microsoft YaHei,Arial,sans-serif',
-            'min-width:260px',
-            'max-width:350px',
+            'min-width:280px',
+            'max-width:400px',
             'box-shadow:0 6px 22px rgba(0,0,0,0.5)',
             'user-select:none'
         ].join(';');
@@ -429,156 +360,217 @@
         panel.innerHTML = [
             // 标题
             '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">',
-            '<b style="font-size:14px;">🔄 自动刷牌助手</b>',
-            '<div>',
-            '<button id="tavern-auto-run-close" style="cursor:pointer;border:0;border-radius:4px;padding:0 8px;background:transparent;color:#a5b1c2;font-size:18px;">×</button>',
-            '</div>',
+            '<b style="font-size:14px;">🔍 自动寻牌助手</b>',
+            '<button id="tavern-auto-find-close" style="cursor:pointer;border:0;border-radius:4px;padding:0 8px;background:transparent;color:#a5b1c2;font-size:18px;">×</button>',
             '</div>',
 
-            // 控制区
+            // 输入区
             '<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">',
-            '<label style="color:#a5b1c2;font-size:12px;">循环:</label>',
-            '<input id="tavern-auto-run-count" type="number" value="0" min="0" max="999" style="width:50px;background:#2d3436;color:#fff;border:1px solid #596275;border-radius:4px;padding:2px 4px;font-size:12px;text-align:center;">',
-            '<span style="color:#636e72;font-size:11px;">(0=无限)</span>',
-            '<label style="color:#a5b1c2;font-size:12px;margin-left:4px;">间隔:</label>',
-            '<input id="tavern-auto-run-interval" type="number" value="300" min="100" max="2000" style="width:50px;background:#2d3436;color:#fff;border:1px solid #596275;border-radius:4px;padding:2px 4px;font-size:12px;text-align:center;">',
-            '<span style="color:#636e72;font-size:11px;">ms</span>',
+            '<label style="color:#a5b1c2;">目标ID:</label>',
+            '<input id="tavern-target-id" type="text" value="" style="width:100px;background:#2d3436;color:#fff;border:1px solid #596275;border-radius:4px;padding:4px 6px;font-size:12px;" placeholder="如: 201101">',
+            '</div>',
+            '<div style="display:flex;gap:6px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">',
+            '<label style="color:#a5b1c2;">刷新次数:</label>',
+            '<input id="tavern-max-refreshes" type="number" value="50" min="1" max="999" style="width:70px;background:#2d3436;color:#fff;border:1px solid #596275;border-radius:4px;padding:4px 6px;text-align:center;">',
             '</div>',
 
-            // 功能开关
-            '<div style="display:flex;gap:12px;margin-bottom:8px;flex-wrap:wrap;">',
-            '<label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#a5b1c2;">',
-            '<input type="checkbox" id="tavern-auto-buy" checked> 自动购买',
+            // 模式选择
+            '<div style="display:flex;gap:16px;margin-bottom:12px;">',
+            '<label style="display:flex;align-items:center;gap:4px;color:#a5b1c2;cursor:pointer;">',
+            '<input type="radio" name="mode" value="buy" checked> 仅购买',
             '</label>',
-            '<label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#a5b1c2;">',
-            '<input type="checkbox" id="tavern-auto-sell" checked> 自动遣散',
+            '<label style="display:flex;align-items:center;gap:4px;color:#a5b1c2;cursor:pointer;">',
+            '<input type="radio" name="mode" value="sell"> 购买并售卖',
             '</label>',
-            '<label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#a5b1c2;">',
-            '<input type="checkbox" id="tavern-buy-all" checked> 购买全部',
-            '</label>',
-            '</div>',
-
-            // 目标ID输入
-            '<div style="margin-bottom:8px;">',
-            '<details style="cursor:pointer;">',
-            '<summary style="color:#a5b1c2;font-size:12px;">🎯 目标ID (逗号分隔，留空=全部)</summary>',
-            '<input id="tavern-target-ids" type="text" value="" style="width:100%;margin-top:4px;background:#2d3436;color:#fff;border:1px solid #596275;border-radius:4px;padding:2px 6px;font-size:12px;" placeholder="例如: 201101,201102,302011">',
-            '</details>',
-            '</div>',
-
-            // 保留ID输入
-            '<div style="margin-bottom:8px;">',
-            '<details style="cursor:pointer;">',
-            '<summary style="color:#a5b1c2;font-size:12px;">🛡️ 保留ID (不遣散)</summary>',
-            '<input id="tavern-keep-ids" type="text" value="" style="width:100%;margin-top:4px;background:#2d3436;color:#fff;border:1px solid #596275;border-radius:4px;padding:2px 6px;font-size:12px;" placeholder="例如: 201101,201102">',
-            '</details>',
-            '</div>',
-
-            // 最大手牌数
-            '<div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">',
-            '<label style="color:#a5b1c2;font-size:12px;">最大手牌:</label>',
-            '<input id="tavern-max-hand" type="number" value="10" min="1" max="20" style="width:50px;background:#2d3436;color:#fff;border:1px solid #596275;border-radius:4px;padding:2px 4px;font-size:12px;text-align:center;">',
             '</div>',
 
             // 按钮
             '<div style="display:flex;gap:6px;margin-bottom:10px;">',
-            '<button id="tavern-auto-run-btn" style="flex:1;cursor:pointer;border:0;border-radius:4px;padding:6px 0;background:#4b7bec;color:#fff;font-weight:bold;font-size:13px;">▶ 启动</button>',
-            '<button id="tavern-auto-run-once-btn" style="flex:0;cursor:pointer;border:0;border-radius:4px;padding:6px 12px;background:#636e72;color:#fff;font-size:12px;">单次</button>',
+            '<button id="tavern-auto-find-btn" style="flex:1;cursor:pointer;border:0;border-radius:4px;padding:6px 0;background:#4b7bec;color:#fff;font-weight:bold;font-size:13px;">▶ 开始寻牌</button>',
             '</div>',
 
             // 状态
-            '<div id="tavern-auto-run-status" style="color:#a5b1c2;font-size:12px;min-height:18px;">就绪</div>',
+            '<div id="tavern-auto-find-status" style="color:#a5b1c2;font-size:12px;min-height:18px;">就绪</div>',
 
             // 统计
-            '<div style="display:flex;gap:12px;margin-top:4px;font-size:11px;color:#636e72;">',
-            '<span>循环: <b id="tavern-cycle-count">0</b></span>',
-            '<span>购买: <b id="tavern-buy-count">0</b></span>',
-            '<span>遣散: <b id="tavern-sell-count">0</b></span>',
+            '<div style="display:flex;gap:12px;margin-top:4px;font-size:11px;color:#636e72;flex-wrap:wrap;">',
+            '<span>已刷新: <b id="tavern-find-refresh">0</b> 次</span>',
+            '<span>已找到: <b id="tavern-find-count">0</b> 张</span>',
+            '<span>已购买: <b id="tavern-buy-count">0</b> 张</span>',
+            '<span>已售卖: <b id="tavern-sell-count">0</b> 张</span>',
             '</div>',
 
             // 进度条
-            '<div id="tavern-auto-run-progress" style="margin-top:6px;height:3px;background:#2d3436;border-radius:2px;overflow:hidden;display:none;">',
-            '<div id="tavern-auto-run-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#4b7bec,#00d2d3);border-radius:2px;transition:width 0.3s;"></div>',
+            '<div id="tavern-auto-find-progress" style="margin-top:6px;height:3px;background:#2d3436;border-radius:2px;overflow:hidden;display:none;">',
+            '<div id="tavern-auto-find-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#4b7bec,#00d2d3);border-radius:2px;transition:width 0.3s;"></div>',
             '</div>'
         ].join('');
 
         document.body.appendChild(panel);
 
-        // 绑定事件
-        bindUIEvents(panel);
-
-        // 拖拽
+        bindUIEvents();
         makeDraggable(panel);
 
-        console.log('✅ 自动刷牌助手UI已加载');
+        console.log('✅ 自动寻牌助手UI已加载');
     }
 
-    function bindUIEvents(panel) {
-        var btn = document.getElementById('tavern-auto-run-btn');
-        var onceBtn = document.getElementById('tavern-auto-run-once-btn');
-        var closeBtn = document.getElementById('tavern-auto-run-close');
+    function bindUIEvents() {
+        var btn = document.getElementById('tavern-auto-find-btn');
+        var closeBtn = document.getElementById('tavern-auto-find-close');
+        var targetInput = document.getElementById('tavern-target-id');
+        var countInput = document.getElementById('tavern-max-refreshes');
+        var statusEl = document.getElementById('tavern-auto-find-status');
+        var refreshEl = document.getElementById('tavern-find-refresh');
+        var foundEl = document.getElementById('tavern-find-count');
+        var buyEl = document.getElementById('tavern-buy-count');
+        var sellEl = document.getElementById('tavern-sell-count');
+        var progressEl = document.getElementById('tavern-auto-find-progress');
+        var barEl = document.getElementById('tavern-auto-find-bar');
 
-        // 启动/停止
-        btn.addEventListener('click', toggleAutoRun);
+        var stopFn = null;
+        var isRunning = false;
 
-        // 单次执行
-        onceBtn.addEventListener('click', function() {
-            if (isRunning) return;
-            console.log('🔄 执行单次循环...');
-            var results = doCycle();
-            console.log('  购买:', results.bought, '遣散:', results.sold);
-            updateUIStatus('单次完成 | 购买:' + results.bought + ' 遣散:' + results.sold);
+        function updateStatus(text, isError) {
+            statusEl.textContent = text;
+            statusEl.style.color = isError ? '#ff6b6b' : '#a5b1c2';
+        }
+
+        function updateStats(refresh, found, bought, sold) {
+            refreshEl.textContent = refresh || 0;
+            foundEl.textContent = found || 0;
+            buyEl.textContent = bought || 0;
+            if (sold !== undefined) sellEl.textContent = sold || 0;
+        }
+
+        function updateProgress(current, total) {
+            if (total > 0) {
+                var pct = Math.min(100, (current / total) * 100);
+                barEl.style.width = pct + '%';
+                progressEl.style.display = 'block';
+            }
+        }
+
+        function resetProgress() {
+            progressEl.style.display = 'none';
+            barEl.style.width = '0%';
+        }
+
+        function onProgress(data) {
+            updateStats(data.current, data.foundCount, data.totalBought, data.totalSold);
+            updateProgress(data.current, data.total);
+            var msg = '搜索中... ' + data.current + '/' + data.total + ' 找到:' + data.foundCount + ' 张';
+            if (data.foundInRound > 0) {
+                msg += ' (+' + data.foundInRound + ')';
+            }
+            updateStatus(msg);
+        }
+
+        function onComplete(data) {
+            isRunning = false;
+            btn.textContent = '▶ 开始寻牌';
+            btn.style.background = '#4b7bec';
+            stopFn = null;
+
+            if (data.success) {
+                updateStats(data.refreshCount, data.foundCount, data.totalBought, data.totalSold);
+                updateStatus('✅ ' + data.reason + ' (找到' + data.foundCount + '张)');
+
+                if (data.foundCount > 0) {
+                    console.log('🎯 寻牌完成! 刷新:', data.refreshCount, '次, 找到:', data.foundCount, '张');
+                } else {
+                    console.log('❌ 未找到目标卡牌 (刷新:', data.refreshCount, '次)');
+                }
+            } else {
+                updateStatus('❌ ' + data.reason, true);
+            }
+
+            setTimeout(function() {
+                if (!isRunning) {
+                    resetProgress();
+                    updateStatus('就绪');
+                }
+            }, 3000);
+        }
+
+        function startFind() {
+            if (isRunning) {
+                // 停止
+                if (stopFn) {
+                    stopFn();
+                    stopFn = null;
+                }
+                isRunning = false;
+                btn.textContent = '▶ 开始寻牌';
+                btn.style.background = '#4b7bec';
+                updateStatus('已停止', false);
+                return;
+            }
+
+            var targetId = targetInput.value.trim();
+            if (!targetId) {
+                updateStatus('请输入目标卡牌ID', true);
+                return;
+            }
+
+            var maxRefreshes = parseInt(countInput.value) || 50;
+            if (maxRefreshes < 1) {
+                updateStatus('请输入有效的刷新次数', true);
+                return;
+            }
+
+            // 检查管理器
+            var m = getManager();
+            if (!m) {
+                updateStatus('❌ 未找到游戏管理器', true);
+                return;
+            }
+
+            isRunning = true;
+            btn.textContent = '■ 停止';
+            btn.style.background = '#e17055';
+            resetProgress();
+            updateStats(0, 0, 0, 0);
+
+            // 获取模式
+            var mode = document.querySelector('input[name="mode"]:checked');
+            var isSellMode = mode && mode.value === 'sell';
+
+            if (isSellMode) {
+                updateStatus('🔄 寻牌并售卖模式，目标ID:' + targetId);
+                stopFn = autoFindBuyAndSell(targetId, maxRefreshes, onProgress, onComplete);
+            } else {
+                updateStatus('🔄 寻牌购买模式，目标ID:' + targetId);
+                stopFn = autoFindAndBuy(targetId, maxRefreshes, onProgress, onComplete);
+            }
+        }
+
+        btn.addEventListener('click', startFind);
+
+        targetInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') startFind();
+        });
+        countInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') startFind();
         });
 
-        // 关闭
         closeBtn.addEventListener('click', function() {
-            if (isRunning) stopAutoRun('关闭面板');
+            if (isRunning && stopFn) {
+                stopFn();
+                stopFn = null;
+                isRunning = false;
+            }
             panel.style.display = 'none';
         });
 
-        // 快捷键: Ctrl+Shift+A
+        // 快捷键 Ctrl+Shift+F
         document.addEventListener('keydown', function(e) {
-            if (e.key === 'A' && e.ctrlKey && e.shiftKey) {
+            if (e.key === 'F' && e.ctrlKey && e.shiftKey) {
                 e.preventDefault();
-                var p = document.getElementById('tavern-auto-run-panel');
+                var p = document.getElementById('tavern-auto-find-panel');
                 if (p) {
                     p.style.display = p.style.display === 'none' ? 'block' : 'none';
                 }
             }
-        });
-
-        // 功能开关
-        document.getElementById('tavern-auto-buy').addEventListener('change', function() {
-            CONFIG.autoBuy = this.checked;
-        });
-        document.getElementById('tavern-auto-sell').addEventListener('change', function() {
-            CONFIG.autoSellEnabled = this.checked;
-        });
-        document.getElementById('tavern-buy-all').addEventListener('change', function() {
-            CONFIG.buyAll = this.checked;
-            document.getElementById('tavern-target-ids').disabled = this.checked;
-        });
-
-        // 目标ID
-        document.getElementById('tavern-target-ids').addEventListener('change', function() {
-            CONFIG.buyTargets = this.value.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
-        });
-
-        // 保留ID
-        document.getElementById('tavern-keep-ids').addEventListener('change', function() {
-            CONFIG.keepChessIds = this.value.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
-        });
-
-        // 最大手牌
-        document.getElementById('tavern-max-hand').addEventListener('change', function() {
-            CONFIG.maxHandSize = parseInt(this.value) || 10;
-        });
-
-        // Enter键触发启动
-        document.querySelectorAll('#tavern-auto-run-panel input[type="number"]').forEach(function(el) {
-            el.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter') toggleAutoRun();
-            });
         });
     }
 
@@ -587,7 +579,7 @@
         var startX, startY, startLeft, startTop;
 
         panel.addEventListener('mousedown', function(e) {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.tagName === 'SUMMARY') return;
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.tagName === 'LABEL') return;
             isDragging = true;
             var rect = panel.getBoundingClientRect();
             startX = e.clientX - rect.left;
@@ -611,80 +603,47 @@
     }
 
     // ============================================================
-    // UI 更新
-    // ============================================================
-    function updateUIStatus(text) {
-        var el = document.getElementById('tavern-auto-run-status');
-        if (el) {
-            el.textContent = text;
-            // 根据状态改变颜色
-            if (text.includes('✅') || text.includes('完成')) {
-                el.style.color = '#00d2d3';
-            } else if (text.includes('❌') || text.includes('错误') || text.includes('异常')) {
-                el.style.color = '#ff6b6b';
-            } else if (text.includes('⏹') || text.includes('停止')) {
-                el.style.color = '#ffd93d';
-            } else {
-                el.style.color = '#a5b1c2';
-            }
-        }
-    }
-
-    function updateUIStats(cycles, bought, sold) {
-        var cycleEl = document.getElementById('tavern-cycle-count');
-        var buyEl = document.getElementById('tavern-buy-count');
-        var sellEl = document.getElementById('tavern-sell-count');
-        if (cycleEl) cycleEl.textContent = cycles;
-        if (buyEl) buyEl.textContent = bought;
-        if (sellEl) sellEl.textContent = sold;
-
-        // 更新按钮状态
-        var btn = document.getElementById('tavern-auto-run-btn');
-        if (btn) {
-            btn.textContent = isRunning ? '■ 停止' : '▶ 启动';
-            btn.style.background = isRunning ? '#e17055' : '#4b7bec';
-        }
-    }
-
-    function resetUIProgress() {
-        var progress = document.getElementById('tavern-auto-run-progress');
-        var bar = document.getElementById('tavern-auto-run-bar');
-        if (progress) progress.style.display = 'none';
-        if (bar) bar.style.width = '0%';
-    }
-
-    // ============================================================
     // 控制台接口
     // ============================================================
-    window.__autoChess = {
-        // 运行
-        run: function(count, interval) {
-            return startAutoRun(count || 0, interval || 300);
+    window.__autoFind = {
+        // 寻牌并购买（刷新N次，统计找到的数量）
+        find: function(targetId, maxRefreshes) {
+            return new Promise(function(resolve) {
+                var stop = autoFindAndBuy(targetId, maxRefreshes || 50,
+                    function(progress) {
+                        console.log('🔄 ' + progress.current + '/' + progress.total + ' 已找到:' + progress.foundCount + '张');
+                    },
+                    function(result) {
+                        console.log('✅ 完成! 刷新:', result.refreshCount, '次, 找到:', result.foundCount, '张');
+                        resolve(result);
+                    }
+                );
+                window.__autoFind._stop = stop;
+            });
+        },
+        // 寻牌并售卖（刷新N次，统计找到的数量）
+        findAndSell: function(targetId, maxRefreshes) {
+            return new Promise(function(resolve) {
+                var stop = autoFindBuyAndSell(targetId, maxRefreshes || 50,
+                    function(progress) {
+                        console.log('🔄 ' + progress.current + '/' + progress.total + ' 已找到:' + progress.foundCount + '张');
+                    },
+                    function(result) {
+                        console.log('✅ 完成! 刷新:', result.refreshCount, '次, 找到:', result.foundCount, '张');
+                        resolve(result);
+                    }
+                );
+                window.__autoFind._stop = stop;
+            });
         },
         stop: function() {
-            stopAutoRun('手动停止');
+            if (window.__autoFind._stop) {
+                window.__autoFind._stop();
+                window.__autoFind._stop = null;
+                console.log('⏹ 已停止');
+            }
         },
-        // 单次
-        once: function() {
-            return doCycle();
-        },
-        // 配置
-        config: CONFIG,
-        // 获取状态
-        status: function() {
-            return {
-                isRunning: isRunning,
-                cycleCount: cycleCount,
-                totalBought: totalBought,
-                totalSold: totalSold,
-                phase: getPhase(),
-                coin: getCoin(),
-                handSize: getHandChess().length,
-                shopSize: getShopGoods().length
-            };
-        },
-        // 查找管理器
-        find: function() {
+        findManager: function() {
             var m = getManager();
             if (m) {
                 console.log('✅ 找到管理器');
@@ -693,9 +652,8 @@
             console.log('❌ 未找到管理器');
             return null;
         },
-        // 显示/隐藏面板
         toggle: function() {
-            var panel = document.getElementById('tavern-auto-run-panel');
+            var panel = document.getElementById('tavern-auto-find-panel');
             if (panel) {
                 panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
             }
@@ -708,21 +666,21 @@
     setTimeout(createUI, 1500);
 
     console.log('========================================');
-    console.log('🔄 自动刷牌助手 v2.0.0');
+    console.log('🔍 自动寻牌助手 v3.1.0');
     console.log('========================================');
     console.log('📌 功能:');
-    console.log('  ✅ 自动刷新商店');
-    console.log('  ✅ 自动购买卡牌 (可指定目标)');
-    console.log('  ✅ 自动遣散手牌 (保留指定卡牌)');
-    console.log('  ✅ 手牌数量控制');
+    console.log('  1. 自动寻牌并购买: 刷新N次，找到所有目标卡牌并购买');
+    console.log('  2. 自动寻牌并售卖: 刷新N次，找到目标卡牌后购买并立即售卖');
+    console.log('  💡 找到目标后继续刷新，直到达到目标次数');
     console.log('========================================');
-    console.log('⌨️  快捷键: Ctrl+Shift+A 显示/隐藏');
+    console.log('⌨️  快捷键: Ctrl+Shift+F 显示/隐藏面板');
     console.log('💻 控制台命令:');
-    console.log('  __autoChess.run(次数, 间隔)  - 启动自动刷牌');
-    console.log('  __autoChess.stop()           - 停止');
-    console.log('  __autoChess.once()           - 执行单次循环');
-    console.log('  __autoChess.status()         - 查看状态');
-    console.log('  __autoChess.config           - 查看配置');
+    console.log('  __autoFind.find("目标ID", 刷新次数)      - 寻牌购买');
+    console.log('  __autoFind.findAndSell("目标ID", 刷新次数) - 寻牌售卖');
+    console.log('  __autoFind.stop()                        - 停止');
+    console.log('========================================');
+    console.log('示例:');
+    console.log('  __autoFind.find("201101", 30)   // 刷新30次，购买所有找到的201101');
     console.log('========================================');
 
 })();
