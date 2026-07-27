@@ -23,6 +23,8 @@
 - EasyBuy.js: 自动购买卡牌
 - EasyClick.js: 执行后启动页端连点器（跟随鼠标）
 - EasyRefreshUI.js: 手动刷新UI（把手牌区没显示的卡牌刷出来）
+- EasySelect3.js: 3选1框自动选择
+  - 目前针对3选1装备是测试通过的，但针对卡牌/锦囊的3选1目前测试不能通过，待修
 - EasySell.js: 自动遣散卡牌
 - EasySkipBattle.js: 执行后跳过战斗
 - EasyUseSpell.js: 脚本操作使用一张锦囊
