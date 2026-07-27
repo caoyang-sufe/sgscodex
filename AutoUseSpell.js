@@ -415,12 +415,10 @@
         console.log('📜 找到', spellIndices.length, '个锦囊');
 
         spellIndices.reverse().forEach(function(index) {
-            var success = useSpellWithTarget(index, 'position', 0);
-            
+            var success = useSpellWithTarget(index, 'shop', 0);
             if (!success) {
-                success = useSpellWithTarget(index, 'shop', 0);
+                success = useSpellWithTarget(index, 'position', 0);
             }
-            
             if (!success) {
                 console.log('⚠️ 锦囊使用失败，遣散 索引[' + index + ']');
                 sellHandCard(index);

@@ -209,7 +209,7 @@
             }
 
             // 继续下一轮
-            timer = setTimeout(doNext, 300);
+            timer = setTimeout(doNext, 200);
         }
 
         // 开始执行
