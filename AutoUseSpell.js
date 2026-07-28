@@ -3,7 +3,7 @@
 // @namespace    http://tampermonkey.net/
 // @version      1.1.0
 // @description  陆逊BUG无限触发 + 一键使用全部锦囊
-// @author       Codex
+// @author       caoyang-sufe
 // @match        https://game.4399iw2.com/yxxsgs/*
 // @match        *://*.sanguosha.com/10/*
 // @match        *://*.sanguosha.com/x/*

@@ -73,7 +73,7 @@
         btn.style.cssText = `
             position: fixed;
             bottom: 80px;
-            right: 1800px;
+            right: 80px;
             z-index: 99999;
             padding: 10px 20px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);

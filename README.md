@@ -18,10 +18,13 @@
 - SGSCheater.js: 三国杀打小抄（作者：小麦 & 孤独尊）
 - TavernchessSkipBattle.js: 跳过自走棋战斗按钮
 - TavernChessStats-0.4.3.js: 自走棋数据统计
+- ChessHelper.js: 键盘控制的自走棋快捷助手
+  - [1-6]购买  [R]刷新  [F]锁定  [Shift+1]遣散手牌中最右侧卡牌  [Alt+9]遣散上阵区域最右侧卡牌  [Alt+0]上阵手牌中最右侧卡牌 [Space]跳过战斗 [Tab]禁用/启用三连控制 [Shift+R]强制刷新UI | 2x速度（测试不生效，本质是UI动画滞后的策略） | 事件+轮询刷新
 
 - EasyAutoRefresh.js: 执行后自动刷新1次
 - EasyBuy.js: 自动购买卡牌
 - EasyClick.js: 执行后启动页端连点器（跟随鼠标）
+- EasyDeploy.js: 自动上阵操作（上阵卡牌的位置调整可自动化，但是没什么意义目前）
 - EasyRefreshUI.js: 手动刷新UI（把手牌区没显示的卡牌刷出来）
 - EasySelect3.js: 3选1框自动选择
   - 目前针对3选1装备是测试通过的，但针对卡牌/锦囊的3选1目前测试不能通过，待修
