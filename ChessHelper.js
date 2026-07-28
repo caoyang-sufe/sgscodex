@@ -1,9 +1,10 @@
 // ==UserScript==
 // @name         三国杀自走棋快捷助手
 // @namespace    http://tampermonkey.net/
-// @version      7.1
-// @description  [1-6]购买  [R]刷新  [F]锁定  [Shift+1]遣散手牌中最右侧卡牌  [Alt+9]遣散上阵区域最右侧卡牌  [Alt+0]上阵手牌中最右侧卡牌 [Space]跳过战斗 [Tab]禁用/启用三连控制 [Shift+R]强制刷新UI | 2x速度（测试不生效，本质是UI动画滞后的策略） | 事件+轮询刷新
-// @author       魏-东-离 caoyang-sufe
+// @version      7.3
+// @description  [1-6]购买  [R]刷新  [F]锁定  [Shift+1]遣散手牌中最右侧卡牌  [Shift+2]使用最右侧锦囊(自动尝试商店->上阵)  [Alt+9]遣散上阵区域最右侧卡牌  [Alt+0]上阵手牌中最右侧卡牌 [Space]跳过战斗 [Tab]禁用/启用三连控制 [Shift+R]强制刷新UI | 2x速度（测试不生效，本质UI动画滞后的同步策略） | 事件+轮询刷新
+// @author       鲁班大王 魏东离 干燥花
+// @email		 caoyang@stu.sufe.edu.cn
 // @match        https://game.4399iw2.com/yxxsgs/*
 // @match        *://*.sanguosha.com/10/*
 // @match        *://*.sanguosha.com/x/*
@@ -107,7 +108,7 @@
         }
     }
 
-    // ── 刷新手牌区（v6.8 原始逻辑，确保可靠） ──
+    // ── 刷新手牌区 ──
     function refreshHandView(targetGoodsID, source) {
         source = source || "unknown";
         try {
@@ -249,7 +250,7 @@
         const scene = getScene();
         mgr.ReqShopBuyChess(goodsID);
 
-        // v6.8 手动隐藏商店卡片，提升即时反馈
+        // 手动隐藏商店卡片，提升即时反馈
         try {
             if (scene && scene.shopView && scene.shopView.cellUIs) {
                 const cell = scene.shopView.cellUIs[index];
@@ -476,6 +477,169 @@
         return true;
     }
 
+    // ── 使用最右侧锦囊（Shift+2） ──
+    // 自动尝试目标：商店 -> 上阵区棋子（按位置顺序）
+    // 通过监听 RESP_CHESS_SPELL_USE 的 errCode 判断是否成功
+    function useRightmostSpell() {
+        const mgr = getManager();
+        if (!mgr) {
+            showToast("管理器未就绪");
+            console.warn("[使用锦囊] 管理器不存在");
+            return false;
+        }
+
+        // 检查是否在招募阶段
+        if (mgr.phase !== 6) {
+            showToast("非招募阶段");
+            console.warn("[使用锦囊] 当前阶段非招募，phase=" + mgr.phase);
+            return false;
+        }
+
+        const hand = mgr.HandChess;
+        if (!hand || hand.length === 0) {
+            showToast("手牌为空");
+            console.warn("[使用锦囊] 手牌为空");
+            return false;
+        }
+
+        // 从右向左查找第一个锦囊牌
+        let spellIndex = -1;
+        let spellCard = null;
+        let spellGoodsID = 0;
+        for (let i = hand.length - 1; i >= 0; i--) {
+            const card = hand[i];
+            // 检查是否是锦囊牌（有 spellID）
+            if (card && (card.spellID || card.SpellID)) {
+                spellIndex = i;
+                spellCard = card;
+                spellGoodsID = card.goodsID || card.GoodsID || 0;
+                break;
+            }
+        }
+
+        if (spellIndex === -1 || !spellCard || !spellGoodsID) {
+            showToast("手牌最右侧无锦囊");
+            console.warn("[使用锦囊] 手牌中无锦囊牌");
+            return false;
+        }
+
+        console.info("[使用锦囊] 找到锦囊 index=" + spellIndex + ", goodsID=" + spellGoodsID);
+
+        // 构建目标列表（按优先级）
+        const targetList = [];
+
+        // 1. 商店卡牌（位置0）
+        const shopGoods = mgr.ShopGoods || [];
+        if (shopGoods.length > 0 && shopGoods[0]) {
+            const tid = shopGoods[0].goodsID || shopGoods[0].GoodsID || 0;
+            if (tid) {
+                targetList.push({
+                    id: tid,
+                    label: '商店',
+                    type: 'shop'
+                });
+            }
+        }
+
+        // 2. 上阵区棋子（按位置顺序 0->6）
+        const lineup = mgr.BattleChess || mgr.selfInfo?.LineUpChess || [];
+        for (let i = 0; i < lineup.length; i++) {
+            const target = lineup[i];
+            if (target) {
+                const tid = target.goodsID || target.GoodsID || target.UniqueId || 0;
+                if (tid) {
+                    targetList.push({
+                        id: tid,
+                        label: '上阵位置' + i,
+                        type: 'lineup',
+                        index: i
+                    });
+                }
+            }
+        }
+
+        if (targetList.length === 0) {
+            showToast("无可用目标");
+            console.warn("[使用锦囊] 无可用目标");
+            return false;
+        }
+
+        console.info("[使用锦囊] 目标列表:", targetList.map(t => t.label).join(' -> '));
+
+        // 尝试使用锦囊，失败后自动尝试下一个目标
+        let currentTargetIdx = 0;
+        let isCompleted = false;
+        let timeoutId = null;
+
+        // 响应处理器
+        function onSpellResponse(e) {
+            if (isCompleted) return;
+            
+            const proto = e.Protocol;
+            // 检查是否是我们发送的请求（通过 goodsID 匹配）
+            // 注意：响应中可能不包含原始 goodsID，这里通过事件触发顺序判断
+            // 简单起见：只要收到响应就处理（因为同一时间只有一个锦囊使用请求）
+            
+            if (proto.errCode) {
+                // 使用失败，尝试下一个目标
+                console.warn("[使用锦囊] 目标失败, errCode=" + proto.errCode);
+                currentTargetIdx++;
+                tryNextTarget();
+            } else {
+                // 使用成功
+                isCompleted = true;
+                clearTimeout(timeoutId);
+                mgr.off('RESP_CHESS_SPELL_USE', onSpellResponse);
+                console.info("[使用锦囊] 使用成功！");
+                showToast("使用锦囊成功");
+            }
+        }
+
+        function tryNextTarget() {
+            if (isCompleted) return;
+
+            if (currentTargetIdx >= targetList.length) {
+                // 所有目标都失败了
+                isCompleted = true;
+                mgr.off('RESP_CHESS_SPELL_USE', onSpellResponse);
+                showToast("锦囊无可用目标");
+                console.warn("[使用锦囊] 所有目标均失败");
+                return;
+            }
+
+            const target = targetList[currentTargetIdx];
+            console.info("[使用锦囊] 尝试目标 " + currentTargetIdx + ": " + target.label + " (id=" + target.id + ")");
+
+            if (typeof mgr.ReqChessUseSpell !== 'function') {
+                showToast("ReqChessUseSpell 方法不存在");
+                isCompleted = true;
+                mgr.off('RESP_CHESS_SPELL_USE', onSpellResponse);
+                return;
+            }
+
+            // 发送使用请求
+            mgr.ReqChessUseSpell(spellGoodsID, [target.id]);
+        }
+
+        // 注册响应监听
+        mgr.on('RESP_CHESS_SPELL_USE', onSpellResponse);
+
+        // 超时保护：如果3秒内没有收到响应，认为请求失败，尝试下一个目标
+        timeoutId = setTimeout(function() {
+            if (isCompleted) return;
+            console.warn("[使用锦囊] 超时，尝试下一个目标");
+            mgr.off('RESP_CHESS_SPELL_USE', onSpellResponse);
+            currentTargetIdx++;
+            // 重新注册监听并尝试下一个
+            mgr.on('RESP_CHESS_SPELL_USE', onSpellResponse);
+            tryNextTarget();
+        }, 100);
+
+        // 开始尝试第一个目标
+        tryNextTarget();
+        return true;
+    }
+
     let toastTimer = null;
     function showToast(text) {
         const old = document.getElementById("sq-toast");
@@ -501,6 +665,13 @@
             refreshHandView(undefined, "manual");
             refreshBattleView("manual");
             showToast("强制刷新UI");
+            return;
+        }
+
+        // Shift+2 使用最右侧锦囊
+        if (e.code === 'Digit2' && e.shiftKey) {
+            e.preventDefault();
+            useRightmostSpell();
             return;
         }
 
@@ -580,5 +751,5 @@
         setTimeout(bindEvents, 1000);
     }
 
-    console.info("[AutoChess] 已启动 | 1-6购买  Shift+1遣散手牌最右  Alt+9遣散战斗区最右  Alt+0上阵最右  R刷新  F锁定  空格跳过  Tab切换三连状态  Shift+R强制刷新UI | 2x速度 | 事件+轮询刷新");
+    console.info("[AutoChess] 已启动 | 1-6购买  Shift+1遣散手牌最右  Shift+2使用最右侧锦囊(自动尝试商店->上阵)  Alt+9遣散战斗区最右  Alt+0上阵最右  R刷新  F锁定  空格跳过  Tab切换三连状态  Shift+R强制刷新UI | 2x速度 | 事件+轮询刷新");
 })();
