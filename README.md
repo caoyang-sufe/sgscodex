@@ -1,3 +1,5 @@
+<font color=yellow><b>有问题在issue里说，不要私信或评论区回复，先思考，再提问</b></font>
+
 篡改猴脚本 https://web.sanguosha.com 一将成名
 
 以Easy开头的.js文件直接在控制台使用

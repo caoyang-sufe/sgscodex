@@ -27,7 +27,6 @@
         DEBOUNCE_DELAY_MS: 100,     // 刷新防抖延迟
         MAX_REFRESH_CALLS: 3,       // 单次操作最多刷新次数
     };
-
     window.blockTripleCombine = true;
 
     // ── 速度 ──
@@ -567,6 +566,5 @@
         document.addEventListener("keydown", onKeyDown);
         setTimeout(bindEvents, 1000);
     }
-
     console.info("[AutoChess] 优化版已启动 | 轮询间隔200ms | 防抖刷新100ms");
 })();
