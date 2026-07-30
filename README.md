@@ -1,4 +1,6 @@
-<font color=yellow><b>有问题在issue里说，不要私信或评论区回复，先思考，再提问</b></font>
+<font color=yellow><b>有问题在issue里说，不要私信或评论区回复；先思考，再提问</b></font>
+
+<font color>想要contribute本项目（如添加新功能）的小伙伴，可以创建Pull Request，只允许写入mod文件夹下的内容，提交格式为`署名-功能名-版本号.js`，任何包含其他修改的PR均不会被接受</font>
 
 篡改猴脚本 https://web.sanguosha.com 一将成名
 
