@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         三国杀自走棋快捷助手
 // @namespace    http://tampermonkey.net/
-// @version      7.3
+// @version      1.0.0
 // @description  [1-6]购买  [R]刷新  [F]锁定  [Shift+1]遣散手牌中最右侧卡牌  [Shift+2]使用最右侧锦囊(自动尝试商店->上阵)  [Alt+9]遣散上阵区域最右侧卡牌  [Alt+0]上阵手牌中最右侧卡牌 [Space]跳过战斗 [Tab]禁用/启用三连控制 [Shift+R]强制刷新UI | 2x速度（测试不生效，本质UI动画滞后的同步策略） | 事件+轮询刷新
 // @author       鲁班大王 魏东离
 // @email		 caoyang@stu.sufe.edu.cn
