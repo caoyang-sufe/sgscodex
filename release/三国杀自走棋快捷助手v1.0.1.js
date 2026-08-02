@@ -186,17 +186,17 @@
         }
         mgr.on('ANI_SHOP_BUY', this, function(goodsID) {
             console.info("[事件] 购买成功", goodsID);
-            setTimeout(() => {
-                refreshHandView(undefined, "event");
-                refreshBattleView("event");
-            }, 50);
+            // setTimeout(() => {
+            //    refreshHandView(undefined, "event");
+            //    refreshBattleView("event");
+            //}, 50);
         });
         mgr.on('ANI_CHESS_RECYCLE', this, function(goodsID) {
             console.info("[事件] 遣散成功", goodsID);
-            setTimeout(() => {
-                refreshHandView(undefined, "event");
-                refreshBattleView("event");
-            }, 50);
+            // setTimeout(() => {
+            //    refreshHandView(undefined, "event");
+            //    refreshBattleView("event");
+            //}, 50);
         });
         eventBound = true;
         console.info("[事件] 绑定完成 (ANI_SHOP_BUY, ANI_CHESS_RECYCLE)");
@@ -384,7 +384,7 @@
         // 轮询检测
         let pollInterval = null;
         let pollCount = 0;
-        const MAX_POLL = 60;
+        const MAX_POLL = 10;
         const POLL_INTERVAL_MS = 100;
 
         const stopPolling = () => {
@@ -409,8 +409,8 @@
             }
             if (!found) {
                 console.info("[上阵] 检测到手牌已移除 goodsID=" + goodsID + "，刷新UI (来源: polling)");
-                refreshHandView(goodsID, "polling");
-                refreshBattleView("polling");
+                // refreshHandView(goodsID, "polling");
+                // refreshBattleView("polling");
                 setTimeout(() => {
                     refreshHandView(goodsID, "polling");
                     refreshBattleView("polling");
@@ -430,8 +430,8 @@
         // 事件监听辅助
         const onHandUpdate = function() {
             console.info("[上阵事件] UI_UPDATE_HAND_CARD 触发，刷新UI");
-            refreshHandView(goodsID, "event");
-            refreshBattleView("event");
+            // refreshHandView(goodsID, "event");
+            // refreshBattleView("event");
             setTimeout(() => {
                 refreshHandView(goodsID, "event");
                 refreshBattleView("event");
@@ -440,8 +440,8 @@
         };
         const onLineUp = function(result) {
             console.info("[上阵事件] ANI_LINE_UP 触发，result:", result);
-            refreshHandView(goodsID, "event");
-            refreshBattleView("event");
+            // refreshHandView(goodsID, "event");
+            // refreshBattleView("event");
             setTimeout(() => {
                 refreshHandView(goodsID, "event");
                 refreshBattleView("event");
@@ -450,8 +450,8 @@
         };
         const onHandNumUpdate = function() {
             console.info("[上阵事件] UI_UPDATE_HAND_CARD_NUM 触发，刷新UI");
-            refreshHandView(goodsID, "event");
-            refreshBattleView("event");
+            // refreshHandView(goodsID, "event");
+            // refreshBattleView("event");
             setTimeout(() => {
                 refreshHandView(goodsID, "event");
                 refreshBattleView("event");
@@ -467,12 +467,12 @@
 
         setTimeout(() => {
             if (pollInterval) {
-                console.warn("[上阵] 5秒超时，强制停止轮询并刷新");
+                console.warn("[上阵] 1秒超时，强制停止轮询并刷新");
                 stopPolling();
                 refreshHandView(goodsID, "polling");
                 refreshBattleView("polling");
             }
-        }, 5000);
+        }, 1000);
 
         return true;
     }
