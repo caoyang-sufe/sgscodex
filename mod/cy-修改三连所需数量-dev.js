@@ -1,5 +1,5 @@
-// 购买指定位置卡牌
-function buyAt(index) {
+// 尝试让任何棋子都能2张合成
+(function() {
     var m = null;
     try {
         if (Laya && Laya.stage) {
@@ -40,35 +40,19 @@ function buyAt(index) {
 
     if (!m) {
         console.log('❌ 未找到管理器');
-        return false;
+        return;
     }
 
-    var shopGoods = m.ShopGoods || [];
-    if (shopGoods.length === 0) {
-        console.log('❌ 商店为空');
-        return false;
-    }
+    // 保存原始方法
+    var originalGetSanLianCnt = m.getSanLianCnt;
+    
+    // 覆盖 getSanLianCnt 方法
+    m.getSanLianCnt = function(e) {
+        // 总是返回2，让所有棋子2张就能合成
+        console.log('🔥 劫持 getSanLianCnt，强制返回 2');
+        return 2;
+    };
 
-    if (index < 0 || index >= shopGoods.length) {
-        console.log('❌ 索引超出范围，当前商店:', shopGoods.length, '个位置，有效索引: 0-' + (shopGoods.length - 1));
-        return false;
-    }
-
-    var card = shopGoods[index];
-    if (!card) {
-        console.log('❌ 位置 [' + index + '] 没有卡牌');
-        return false;
-    }
-
-    var goodsID = card.goodsID || card.GoodsID;
-    if (!goodsID) {
-        console.log('❌ 无法获取卡牌ID');
-        return false;
-    }
-
-    m.ReqShopBuyChess(goodsID);
-    console.log('✅ 已购买卡牌 [位置:' + index + '] goodsID:' + goodsID + ' chessID:' + card.chessID + ' spellID:' + card.spellID);
-    return m;
-}
-
-window.buyAt = buyAt;
+    console.log('✅ 已劫持 getSanLianCnt，现在任何棋子2张即可合成');
+    console.log('💡 把手牌中2张相同棋子放到场上，或等客户端自动检测');
+})();
