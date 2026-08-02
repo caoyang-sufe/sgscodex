@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name         自走棋小抄
+// @name         自走棋统计监听
 // @namespace    http://tampermonkey.net/
-// @version      0.4.3
+// @version      1.0.0
 // @description  统计酒馆自走棋本局商店卡牌出现、刷新与购买虎符消耗，支持分回合、拖拽缩放面板和结束下载。
 // @author       caoyang-sufe
 // @match        https://game.4399iw2.com/yxxsgs/*
