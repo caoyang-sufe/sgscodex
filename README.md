@@ -12,6 +12,8 @@ mod文件夹里目前上传了一些没啥用的小功能，测试了若干欺�
 
 目前所有功能其实已经足够用来收集操作数据，实现自走棋的 RL 训练，state（即shop/hand/lineup/coin/time） 和 action（buyAt/deployAt/sellAt/refresh/lock） 都是很明确的，有兴趣有时间的小伙伴可以尝试。
 
+本项目暂时archive，需要PR的小伙伴可以往mod中补充功能（直接往main提交，不用创建新的分支），会定期查看合并，爱你❤
+
 ----
 
 ## 260728更新
