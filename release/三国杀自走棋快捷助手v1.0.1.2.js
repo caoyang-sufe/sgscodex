@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         三国杀自走棋全能助手
 // @namespace    http://tampermonkey.net/
-// @version      1.0.2
+// @version      1.0.1.2
 // @description  [1-6]购买  [R]刷新  [F]锁定  [Shift+1]遣散手牌最右  [Shift+2]使用最右侧锦囊(自动尝试商店->上阵)  [Alt+9]遣散上阵最右  [Alt+0]上阵手牌最右  [Space]跳过战斗  [Tab]三连开关  [Shift+R]强制刷新  [A]强制完成三连  [E]一键清理非白名单手牌  [Q]打开/关闭辅助面板（白名单配置+自动购买）
-// @author       鲁班大王 魏东离 江海常流
+// @author       鲁班大王 江海常流
 // @email        caoyang@stu.sufe.edu.cn
 // @match        https://game.4399iw2.com/yxxsgs/*
 // @match        *://*.sanguosha.com/10/*
