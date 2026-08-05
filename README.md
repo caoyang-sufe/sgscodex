@@ -6,7 +6,7 @@
 - [【JS】从连点器到自动寻牌购买遣散](https://www.bilibili.com/video/BV1hvge6CE3x)
 - [【JS】三国杀自走棋小抄正式发布！](https://www.bilibili.com/video/BV1bo3z6oEhz/)
 
-**有问题在issue里说，不要B站私信或评论区回复；先思考，再提问**
+**有问题在 issues 里说，不要B站私信或评论区回复；先思考，再提问**
 
 **想要contribute本项目（如添加新功能）的小伙伴，可以创建Pull Request，只允许写入mod文件夹下的内容，提交格式为`署名-功能名-版本号.js`，任何包含其他修改的PR均不会被接受**
 
