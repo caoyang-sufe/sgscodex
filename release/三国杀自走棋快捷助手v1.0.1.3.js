@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         三国杀自走棋快捷助手
 // @namespace    http://tampermonkey.net/
-// @version      1.0.3
-// @description  [1-6]购买  [R]刷新  [F]锁定  [Shift+1]遣散手牌中最右侧卡牌  [Shift+2]使用最右侧锦囊(自动尝试商店->上阵)  [Shift+4]遣散指定吴国低星卡牌  [Alt+9]遣散上阵区域最右侧卡牌  [Alt+0]上阵手牌中最右侧卡牌 [Space]跳过战斗 [Tab]禁用/启用三连控制 [Shift+R]强制刷新UI | 2x速度（测试不生效，本质UI动画滞后的同步策略） | 事件+轮询刷新
-// @author       鲁班大王 魏东离
+// @version      1.0.1.3
+// @description  [1-6]购买  [R]刷新  [F]锁定  [Shift+1]遣散手牌中最右侧卡牌  [Shift+2]使用最右侧锦囊(自动尝试商店->上阵)  [Shift+3]自动随征(最右侧随征卡→位置0)  [Shift+4]一键遣散指定吴国低星卡牌  [Alt+9]遣散上阵区域最右侧卡牌  [Alt+0]上阵手牌中最右侧卡牌 [Space]跳过战斗 [Tab]禁用/启用三连控制 [Shift+R]强制刷新UI | 2x速度（测试不生效，本质UI动画滞后的同步策略） | 事件+轮询刷新
+// @author       鲁班大王
 // @email		 caoyang@stu.sufe.edu.cn
 // @match        https://game.4399iw2.com/yxxsgs/*
 // @match        *://*.sanguosha.com/10/*
@@ -27,6 +27,43 @@
         TavernChessGameContext.Speed = 2;
         console.info("[Speed] 2x");
     }
+
+    // ── 随征卡ID列表 ──
+    var FOLLOWUP_CHESS_IDS = [
+        '21003071', '21003072', // 黄盖
+        '21001061', '21001062', // 薛灵芸
+        '21004141', '21004142', // 马元义
+        '21007101', '21007102', // 张勋
+        '20904231'              // 黄巾兵
+    ];
+
+    // ============================================================
+    // 【新增】指定遣散的目标 chessId 列表 (Shift+4)
+    // ============================================================
+    var TARGET_DISCARD_CHESS_IDS = [
+        21003011, // 吕蒙
+        21003021, // 陈武
+        21003031, // 陆逊
+        21003041, // 程普
+        21003061, // 凌统
+        21003091, // 周善
+        21003101, // 徐盛
+        21003111, // 甘宁
+        21003121, // 太史慈
+        21003131, // 张昭
+        21003141, // 大乔
+        21003151, // 孙坚
+        21003161, // 鲁肃
+        21003171, // 孙尚香
+        21003191, // 孙翎鸾
+        21003201, // 周瑜
+        21003221, // 小乔
+        21003231, // 韩当
+        21003241  // 董袭
+    ];
+
+    // 转为 Set 提高查找效率
+    var TARGET_DISCARD_SET = new Set(TARGET_DISCARD_CHESS_IDS);
 
     // ── 工具函数 ──
     function search(obj) {
@@ -197,46 +234,25 @@
     // ── 功能函数 ──
 
     // ============================================================
-    // 【新增】遣散手牌中指定 chessId 的卡牌 (Shift+4)
+    // 【新增】一键遣散指定 chessId 的卡牌 (Shift+4)
     // ============================================================
-    const TARGET_CHESS_IDS = new Set([
-        21003011, // 吕蒙
-        21003021, // 陈武
-        21003031, // 陆逊
-        21003041, // 程普
-        21003061, // 凌统
-        21003091, // 周善
-        21003101, // 徐盛
-        21003111, // 甘宁
-        21003121, // 太史慈
-        21003131, // 张昭
-        21003141, // 大乔
-        21003151, // 孙坚
-        21003161, // 鲁肃
-        21003171, // 孙尚香
-        21003191, // 孙翎鸾
-        21003201, // 周瑜
-        21003221, // 小乔
-        21003231, // 韩当
-        21003241  // 董袭
-    ]);
-
     function discardTargetChessIds() {
-        const mgr = getManager();
-        if (!mgr) {
+        var m = getManager();
+        if (!m) {
             console.warn("[遣散指定卡牌] 管理器不存在");
             showToast("管理器未就绪");
             return false;
         }
 
         // 检查是否在招募阶段
-        if (mgr.phase !== 6) {
+        var phase = m.Phase || m.phase;
+        if (phase !== 6 && phase !== 'InRecruit') {
+            console.warn("[遣散指定卡牌] 不在招募阶段，phase=" + phase);
             showToast("非招募阶段");
-            console.warn("[遣散指定卡牌] 当前阶段非招募，phase=" + mgr.phase);
             return false;
         }
 
-        const hand = mgr.HandChess;
+        var hand = m.HandChess || m.handChess || [];
         if (!hand || hand.length === 0) {
             showToast("手牌为空");
             console.warn("[遣散指定卡牌] 手牌为空");
@@ -244,24 +260,24 @@
         }
 
         // 收集所有匹配的卡牌 goodsID
-        const goodsIDsToDiscard = [];
-        const cardNames = [];
+        var goodsIDsToDiscard = [];
+        var cardNames = [];
 
-        for (let i = 0; i < hand.length; i++) {
-            const card = hand[i];
+        for (var i = 0; i < hand.length; i++) {
+            var card = hand[i];
             if (!card) continue;
-
-            const chessID = card.chessID || card.ChessID || 0;
-            if (TARGET_CHESS_IDS.has(chessID)) {
-                const goodsID = card.goodsID || card.GoodsID || 0;
+            
+            var chessID = card.chessID || card.ChessID || 0;
+            if (TARGET_DISCARD_SET.has(chessID)) {
+                var goodsID = card.goodsID || card.GoodsID || 0;
                 if (goodsID) {
                     goodsIDsToDiscard.push(goodsID);
-                    // 尝试获取卡牌名称（用于提示）
-                    const name = card.name || card.Name || '';
+                    // 尝试获取卡牌名称
+                    var name = card.name || card.Name || '';
                     if (name) {
                         cardNames.push(name);
                     } else {
-                        cardNames.push('ID:' + chessID);
+                        cardNames.push(String(chessID));
                     }
                 }
             }
@@ -275,21 +291,120 @@
 
         console.info("[遣散指定卡牌] 找到", goodsIDsToDiscard.length, "张目标卡牌:", cardNames.join(', '));
 
-        // 逐个遣散（间隔 50ms，避免请求过快）
-        goodsIDsToDiscard.forEach((gid, index) => {
-            setTimeout(() => {
-                if (typeof mgr.ReqShopRecycleChess === "function") {
-                    mgr.ReqShopRecycleChess(gid);
+        // 逐个遣散（间隔 60ms，避免请求过快）
+        goodsIDsToDiscard.forEach(function(gid, index) {
+            setTimeout(function() {
+                if (typeof m.ReqShopRecycleChess === "function") {
+                    m.ReqShopRecycleChess(gid);
                     console.info("[遣散指定卡牌] 遣散 goodsID=", gid);
                 }
-            }, index * 50);
+            }, index * 60);
         });
 
-        showToast(`遣散 ${goodsIDsToDiscard.length} 张目标卡牌`);
+        showToast("遣散 " + goodsIDsToDiscard.length + " 张目标卡牌");
         return true;
     }
 
-    // ── 原有功能函数 ──
+    // ============================================================
+    // 自动随征 - Shift+3
+    // ============================================================
+    function isFollowUpCard(card) {
+        if (!card) return false;
+        var chessID = card.chessID || card.ChessID || 0;
+        return FOLLOWUP_CHESS_IDS.indexOf(String(chessID)) !== -1;
+    }
+
+    function getRightmostFollowUpCard() {
+        var m = getManager();
+        if (!m) return null;
+
+        var hand = m.HandChess || m.handChess || [];
+        for (var i = hand.length - 1; i >= 0; i--) {
+            var card = hand[i];
+            if (isFollowUpCard(card)) {
+                return {
+                    index: i,
+                    card: card,
+                    goodsID: card.goodsID || card.GoodsID || 0,
+                    chessID: card.chessID || card.ChessID || 0
+                };
+            }
+        }
+        return null;
+    }
+
+    function getTargetChess(position) {
+        var m = getManager();
+        if (!m) return null;
+
+        position = position || 0;
+        var lineup = m.BattleChess || m.SelfInfo?.LineUpChess || [];
+        
+        if (position < 0 || position >= lineup.length) {
+            console.warn('[随征] 位置超出范围:', position);
+            return null;
+        }
+
+        var target = lineup[position];
+        if (!target) {
+            console.warn('[随征] 位置', position, '没有棋子');
+            return null;
+        }
+
+        return {
+            chess: target,
+            goodsID: target.goodsID || target.GoodsID || 0,
+            chessID: target.chessID || target.ChessID || 0
+        };
+    }
+
+    function autoFollowUp() {
+        var m = getManager();
+        if (!m) {
+            console.warn('[随征] 未找到管理器');
+            showToast("管理器未就绪");
+            return false;
+        }
+
+        // 检查是否在招募阶段
+        var phase = m.Phase || m.phase;
+        if (phase !== 6 && phase !== 'InRecruit') {
+            console.warn('[随征] 不在招募阶段，phase=' + phase);
+            showToast("非招募阶段");
+            return false;
+        }
+
+        // 1. 查找随征卡（最右侧）
+        var followUp = getRightmostFollowUpCard();
+        if (!followUp) {
+            console.warn('[随征] 手牌中没有随征卡');
+            showToast("无随征卡");
+            return false;
+        }
+        console.info('[随征] 找到随征卡:', followUp.chessID, 'goodsID:', followUp.goodsID);
+
+        // 2. 查找目标棋子（位置0）
+        var target = getTargetChess(0);
+        if (!target) {
+            console.warn('[随征] 位置0没有棋子');
+            showToast("位置0无棋子");
+            return false;
+        }
+        console.info('[随征] 目标棋子:', target.chessID, 'goodsID:', target.goodsID);
+
+        // 3. 执行随征
+        if (typeof m.ReqChessFollowUp === 'function') {
+            m.ReqChessFollowUp(target.goodsID, followUp.goodsID);
+            console.info('[随征] ✅ 已发送随征请求 目标:', target.goodsID, '随征卡:', followUp.goodsID);
+            showToast("随征成功");
+            return true;
+        } else {
+            console.warn('[随征] ReqChessFollowUp 方法不存在');
+            showToast("随征失败");
+            return false;
+        }
+    }
+
     function skipBattle() {
         try {
             const scene = getScene();
@@ -643,9 +758,9 @@
 
         function onSpellResponse(e) {
             if (isCompleted) return;
-
+            
             const proto = e.Protocol;
-
+            
             if (proto.errCode) {
                 console.warn("[使用锦囊] 目标失败, errCode=" + proto.errCode);
                 currentTargetIdx++;
@@ -716,13 +831,6 @@
         const tag = e.target.tagName;
         if (tag === "INPUT" || tag === "TEXTAREA") return;
 
-        // Shift+4 遣散指定 chessId 的卡牌
-        if (e.code === 'Digit4' && e.shiftKey) {
-            e.preventDefault();
-            discardTargetChessIds();
-            return;
-        }
-
         // Shift+R 强制刷新UI
         if (e.code === 'KeyR' && e.shiftKey) {
             e.preventDefault();
@@ -737,6 +845,24 @@
         if (e.code === 'Digit2' && e.shiftKey) {
             e.preventDefault();
             useRightmostSpell();
+            return;
+        }
+
+        // Shift+3 自动随征
+        if (e.code === 'Digit3' && e.shiftKey) {
+            e.preventDefault();
+            console.info("[快捷键] Shift+3 - 自动随征");
+            autoFollowUp();
+            return;
+        }
+
+        // ============================================================
+        // 【新增】Shift+4 一键遣散指定卡牌
+        // ============================================================
+        if (e.code === 'Digit4' && e.shiftKey) {
+            e.preventDefault();
+            console.info("[快捷键] Shift+4 - 一键遣散指定卡牌");
+            discardTargetChessIds();
             return;
         }
 
@@ -814,6 +940,9 @@
         setTimeout(bindEvents, 1000);
     }
 
-    console.info("[AutoChess] v1.0.2 已启动 | 新增 Shift+4 遣散指定吴国低星卡牌 (吕蒙/陈武/陆逊/程普/凌统/周善/徐盛/甘宁/太史慈/张昭/大乔/孙坚/鲁肃/孙尚香/孙翎鸾/周瑜/小乔/韩当/董袭)");
-    console.info("[AutoChess] 快捷键: 1-6购买  Shift+1遣散手牌最右  Shift+2使用最右侧锦囊  Shift+4遣散指定卡牌  Alt+9遣散战斗区最右  Alt+0上阵最右  R刷新  F锁定  空格跳过  Tab切换三连状态  Shift+R强制刷新UI");
+    console.info("[AutoChess] v1.0.1.2 已启动");
+    console.info("  快捷键: 1-6购买 | Shift+1遣散手牌最右 | Shift+2使用最右侧锦囊 | Shift+3自动随征 | Shift+4一键遣散指定卡牌");
+    console.info("  Alt+9遣散战斗区最右 | Alt+0上阵最右 | R刷新 | F锁定 | 空格跳过 | Tab切换三连状态 | Shift+R强制刷新UI");
+    console.info("  Shift+4 目标卡牌: 吕蒙/陈武/陆逊/程普/凌统/周善/徐盛/甘宁/太史慈/张昭/大乔/孙坚/鲁肃/孙尚香/孙翎鸾/周瑜/小乔/韩当/董袭");
+
 })();
