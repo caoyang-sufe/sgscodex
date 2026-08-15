@@ -4,7 +4,7 @@
 
 - [【JS】自走棋小抄改良](https://www.bilibili.com/video/BV1jrN36kEMN/)
 - [【JS】从连点器到自动寻牌购买遣散](https://www.bilibili.com/video/BV1hvge6CE3x)
-- [【JS】三国杀自走棋小抄正式发布！](https://www.bilibili.com/video/BV1bo3z6oEhz/)
+- [【JS】三国杀自走棋小抄正式发布！](https://www.bilibili.com/video/BV1bo3z6oEhz/)：由于被一些闹事小孩举报，主要功能发布演示均转移到上一条视频
 
 **有问题在 issues 里说，不要B站私信或评论区回复；先思考，再提问**
 
