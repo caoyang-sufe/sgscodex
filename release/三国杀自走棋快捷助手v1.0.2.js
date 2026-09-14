@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         三国杀自走棋快捷助手
 // @namespace    http://tampermonkey.net/
-// @version      1.0.1.3
-// @description  [1-6]购买  [R]刷新  [F]锁定  [Shift+1]遣散手牌中最右侧卡牌  [Shift+2]使用最右侧锦囊(自动尝试商店->上阵)  [Shift+3]自动随征(最右侧随征卡→位置0)  [Shift+4]一键遣散指定吴国低星卡牌  [Alt+9]遣散上阵区域最右侧卡牌  [Alt+0]上阵手牌中最右侧卡牌 [Space]跳过战斗 [Tab]禁用/启用三连控制 [Shift+R]强制刷新UI | 2x速度（测试不生效，本质UI动画滞后的同步策略） | 事件+轮询刷新
+// @version      1.0.2
+// @description  [1-6]购买  [R]刷新  [F]锁定  [Shift+1]遣散手牌中最右侧卡牌  [Shift+2]使用最右侧锦囊  [Shift+3]自动随征  [Shift+4]一键遣散指定吴国低星卡牌  [Alt+1]自动刷新+购买祢衡(开关)  [Alt+2]自动刷新+购买庞德公(开关)  [Alt+9]遣散上阵区域最右侧卡牌  [Alt+0]上阵手牌中最右侧卡牌 [Space]跳过战斗 [Tab]禁用/启用三连控制 [Shift+R]强制刷新UI | 2x速度 | 事件+轮询刷新
 // @author       鲁班大王
 // @email		 caoyang@stu.sufe.edu.cn
 // @match        https://game.4399iw2.com/yxxsgs/*
@@ -30,40 +30,46 @@
 
     // ── 随征卡ID列表 ──
     var FOLLOWUP_CHESS_IDS = [
-        '21003071', '21003072', // 黄盖
-        '21001061', '21001062', // 薛灵芸
-        '21004141', '21004142', // 马元义
-        '21007101', '21007102', // 张勋
-        '20904231'              // 黄巾兵
+        '21003071', '21003072',
+        '21001061', '21001062',
+        '21004141', '21004142',
+        '21007101', '21007102',
+        '20904231'
     ];
 
-    // ============================================================
-    // 【新增】指定遣散的目标 chessId 列表 (Shift+4)
-    // ============================================================
+    // ── 指定遣散的目标 chessId 列表 (Shift+4) ──
     var TARGET_DISCARD_CHESS_IDS = [
-        21003011, // 吕蒙
-        21003021, // 陈武
-        21003031, // 陆逊
-        21003041, // 程普
-        21003061, // 凌统
-        21003091, // 周善
-        21003101, // 徐盛
-        21003111, // 甘宁
-        21003121, // 太史慈
-        21003131, // 张昭
-        21003141, // 大乔
-        21003151, // 孙坚
-        21003161, // 鲁肃
-        21003171, // 孙尚香
-        21003191, // 孙翎鸾
-        21003201, // 周瑜
-        21003221, // 小乔
-        21003231, // 韩当
-        21003241  // 董袭
+        21003011, 21003021, 21003031, 21003041, 21003061, 21003091,
+        21003101, 21003111, 21003121, 21003131, 21003141, 21003151,
+        21003161, 21003171, 21003191, 21003201, 21003221, 21003231,
+        21003241
     ];
-
-    // 转为 Set 提高查找效率
     var TARGET_DISCARD_SET = new Set(TARGET_DISCARD_CHESS_IDS);
+
+    // ============================================================
+    // 【核心】自动刷新+购买配置
+    // ============================================================
+    // 每次刷新后等待的时间（毫秒）- 需要等待服务器返回新商店
+    var AUTO_REFRESH_BUY_DELAY = 200;
+
+    var AUTO_BUY_CONFIG = {
+        // Alt+1: 祢衡
+        miheng: {
+            chessId: 21008191,
+            name: '祢衡',
+            active: false,
+            running: false,
+            stopFlag: false
+        },
+        // Alt+2: 庞德公
+        pangdegong: {
+            chessId: 21008221,
+            name: '庞德公',
+            active: false,
+            running: false,
+            stopFlag: false
+        }
+    };
 
     // ── 工具函数 ──
     function search(obj) {
@@ -85,7 +91,7 @@
         return s ? s.manager : null;
     }
 
-    // ── 三连补丁（基于实例，动态获取原型，确保允许时正确调用原始方法） ──
+    // ── 三连补丁 ──
     let triplePatched = false;
     function patchTriple() {
         if (triplePatched) return;
@@ -96,7 +102,6 @@
                 return;
             }
             const proto = mgr.constructor.prototype;
-            // 保存原始方法到闭包，避免被覆盖
             const origCheck = proto.checkSanLianReq;
             const origComposite = proto.ReqChessComposite;
             if (!origCheck || !origComposite) {
@@ -104,56 +109,42 @@
                 return;
             }
             proto.checkSanLianReq = function() {
-                if (window.blockTripleCombine !== false) {
-                    console.info("[三连] 阻止自动合成检测");
-                    return;
-                }
-                // 调用原始方法（使用闭包保存的引用）
+                if (window.blockTripleCombine !== false) return;
                 return origCheck.call(this);
             };
             proto.ReqChessComposite = function(goodsIDs) {
-                if (window.blockTripleCombine !== false) {
-                    console.info("[三连] 阻止合成请求", goodsIDs);
-                    return;
-                }
+                if (window.blockTripleCombine !== false) return;
                 return origComposite.call(this, goodsIDs);
             };
             triplePatched = true;
-            console.info("[三连] 补丁应用成功，当前状态:", window.blockTripleCombine ? "阻止" : "允许");
         } catch(e) {
             setTimeout(patchTriple, 100);
         }
     }
-    // 立即尝试，若失败则轮询
     patchTriple();
 
     // ── 刷新战斗区 ──
     function refreshBattleView(source) {
-        source = source || "unknown";
         try {
             const scene = getScene();
             if (!scene || !scene.chessView) return false;
             if (typeof scene.chessView.Calibration === "function") {
                 scene.chessView.Calibration(true);
-                console.info("[战斗区刷新] Calibration(true) 调用，来源: " + source);
                 return true;
             }
             return false;
         } catch(e) {
-            console.warn("[战斗区刷新] 异常", e);
             return false;
         }
     }
 
     // ── 刷新手牌区 ──
     function refreshHandView(targetGoodsID, source) {
-        source = source || "unknown";
         try {
             const scene = getScene();
             if (!scene || !scene.cardView) return false;
             let refreshed = false;
 
-            // 直接隐藏指定卡片
             if (targetGoodsID !== undefined) {
                 const cardView = scene.cardView;
                 for (let i = 0; i < cardView.numChildren; i++) {
@@ -161,53 +152,34 @@
                     if (child && child.goodsID === targetGoodsID) {
                         child.visible = false;
                         child.mouseEnabled = false;
-                        console.info("[手牌刷新] 直接隐藏卡片 goodsID=" + targetGoodsID + "，来源: " + source);
                         refreshed = true;
                     }
                 }
             }
 
-            // 常规刷新
             if (typeof scene.cardView.Calibration === "function") {
                 scene.cardView.Calibration(true);
-                console.info("[手牌刷新] Calibration(true) 调用，来源: " + source);
                 refreshed = true;
             }
             if (typeof scene.cardView.UpdateHandCards === "function") {
                 scene.cardView.UpdateHandCards();
-                console.info("[手牌刷新] UpdateHandCards 调用，来源: " + source);
-                refreshed = true;
-            }
-            if (typeof scene.cardView.Refresh === "function") {
-                scene.cardView.Refresh();
-                console.info("[手牌刷新] Refresh 调用，来源: " + source);
-                refreshed = true;
-            }
-            if (typeof scene.cardView.Reload === "function") {
-                scene.cardView.Reload();
-                console.info("[手牌刷新] Reload 调用，来源: " + source);
                 refreshed = true;
             }
 
-            // 触发游戏内部事件
             const mgr = getManager();
             if (mgr && typeof mgr.event === "function") {
                 mgr.event('UI_UPDATE_HAND_CARD');
                 mgr.event('ANI_LINE_UP');
-                console.info("[手牌刷新] 手动触发事件，来源: " + source);
             }
 
-            // 延迟再刷新一次
             setTimeout(() => {
                 if (scene.cardView && typeof scene.cardView.Calibration === "function") {
                     scene.cardView.Calibration(true);
-                    console.info("[手牌刷新] 延迟 Calibration(true) 调用，来源: " + source);
                 }
             }, 50);
 
             return refreshed;
         } catch(e) {
-            console.warn("[手牌刷新] 异常", e);
             return false;
         }
     }
@@ -228,26 +200,201 @@
             console.info("[事件] 遣散成功", goodsID);
         });
         eventBound = true;
-        console.info("[事件] 绑定完成 (ANI_SHOP_BUY, ANI_CHESS_RECYCLE)");
+    }
+
+    // ============================================================
+    // 【核心】自动刷新+购买功能
+    // ============================================================
+
+    /**
+     * 检查是否在招募阶段
+     */
+    function isInRecruitPhase() {
+        var m = getManager();
+        if (!m) return false;
+        var phase = m.Phase || m.phase;
+        return phase === 6 || phase === 'InRecruit';
+    }
+
+    /**
+     * 在商店中查找指定 chessId 的卡牌
+     */
+    function findShopGoodsByChessId(chessId) {
+        var m = getManager();
+        if (!m) return null;
+
+        var shop = m.ShopGoods || [];
+        for (var i = 0; i < shop.length; i++) {
+            var goods = shop[i];
+            if (!goods) continue;
+
+            var goodsChessId = goods.chessID || goods.ChessID || 0;
+            if (goodsChessId === chessId) {
+                return {
+                    slotIndex: i,
+                    goodsID: goods.goodsID || goods.GoodsID || 0,
+                    chessID: goodsChessId
+                };
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 【核心】自动刷新+购买循环
+     * 
+     * 流程：
+     * 1. 检查商店中是否有目标卡牌
+     * 2. 有 → 购买（不刷新）
+     * 3. 无 → 刷新商店
+     * 4. 等待商店更新后继续下一轮
+     */
+    async function autoRefreshBuyLoop(configKey) {
+        var config = AUTO_BUY_CONFIG[configKey];
+        if (!config) return;
+
+        config.running = true;
+        config.stopFlag = false;
+
+        var loopCount = 0;
+        console.info("[自动购买] 🚀 开始循环:", config.name);
+
+        while (!config.stopFlag && config.active) {
+            loopCount++;
+
+            // 1. 检查是否仍在招募阶段
+            if (!isInRecruitPhase()) {
+                console.info("[自动购买] 非招募阶段，暂停等待...");
+                await sleep(500);
+                continue;
+            }
+
+            var m = getManager();
+            if (!m) {
+                await sleep(200);
+                continue;
+            }
+
+            // 2. 检查是否可操作
+            if (!m.CanOperate) {
+                await sleep(200);
+                continue;
+            }
+
+            // 3. 查找商店中是否有目标卡牌
+            var found = findShopGoodsByChessId(config.chessId);
+
+            if (found) {
+                // ===== 找到了！执行购买 =====
+                var cost = m.GetShopBuyCost ? m.GetShopBuyCost(found.goodsID) : 3;
+
+                // 检查金币是否足够
+                if (m.CoinNum < cost) {
+                    console.info("[自动购买] 💰 金币不足:", m.CoinNum, "<", cost, "，暂停等待");
+                    await sleep(500);
+                    continue;
+                }
+
+                // 检查手牌是否已满
+                var handLimit = m.HandCardLimit || 20;
+                var handCount = m.HandCardCnt || 0;
+                if (handCount >= handLimit) {
+                    console.info("[自动购买] 🃏 手牌已满:", handCount, "/", handLimit, "，暂停等待");
+                    await sleep(500);
+                    continue;
+                }
+
+                // 执行购买
+                console.info("[自动购买] ✅ 找到", config.name, "！第" + (found.slotIndex + 1) + "格，购买");
+                showToast("🛒 买到 " + config.name + "！");
+
+                if (typeof m.ReqShopBuyChess === "function") {
+                    m.ReqShopBuyChess(found.goodsID);
+                }
+
+                // 购买后等待，然后继续（可能还有更多同名卡牌）
+                await sleep(300);
+            } else {
+                // ===== 没找到，执行刷新 =====
+                var refreshCost = m.ShopRefreshCost || 1;
+
+                // 检查金币是否足够刷新
+                if (m.CoinNum < refreshCost) {
+                    console.info("[自动购买] 💰 金币不足以刷新:", m.CoinNum, "<", refreshCost, "，暂停等待");
+                    await sleep(500);
+                    continue;
+                }
+
+                console.info("[自动购买] 🔄 第" + loopCount + "次刷新（未找到" + config.name + "）");
+                showToast("🔄 刷新中... (" + loopCount + ")");
+
+                if (typeof m.ReqShopRefreshChess === "function") {
+                    m.ReqShopRefreshChess();
+                }
+
+                // 等待服务器返回新的商店数据
+                await sleep(AUTO_REFRESH_BUY_DELAY);
+            }
+        }
+
+        config.running = false;
+        console.info("[自动购买] ⏹ 循环结束:", config.name, "，共执行", loopCount, "次");
+    }
+
+    /**
+     * 延时辅助函数
+     */
+    function sleep(ms) {
+        return new Promise(function(resolve) {
+            setTimeout(resolve, ms);
+        });
+    }
+
+    /**
+     * 启动/停止自动购买（开关式）
+     */
+    function toggleAutoBuy(configKey) {
+        var config = AUTO_BUY_CONFIG[configKey];
+        if (!config) return;
+
+        if (config.active) {
+            // ===== 停止 =====
+            config.active = false;
+            config.stopFlag = true;
+            console.info("[自动购买] 🛑 停止:", config.name);
+            showToast("🛑 已停止自动购买 " + config.name);
+        } else {
+            // ===== 停止其他自动购买 =====
+            Object.keys(AUTO_BUY_CONFIG).forEach(function(key) {
+                if (key !== configKey && AUTO_BUY_CONFIG[key].active) {
+                    AUTO_BUY_CONFIG[key].active = false;
+                    AUTO_BUY_CONFIG[key].stopFlag = true;
+                }
+            });
+
+            // ===== 启动 =====
+            config.active = true;
+            config.stopFlag = false;
+            console.info("[自动购买] ▶ 启动:", config.name, "chessId=" + config.chessId);
+            showToast("▶ 自动刷新+购买 " + config.name + " 已启动");
+
+            // 启动异步循环
+            autoRefreshBuyLoop(configKey);
+        }
     }
 
     // ── 功能函数 ──
 
-    // ============================================================
-    // 【新增】一键遣散指定 chessId 的卡牌 (Shift+4)
-    // ============================================================
+    // 一键遣散指定 chessId 的卡牌 (Shift+4)
     function discardTargetChessIds() {
         var m = getManager();
         if (!m) {
-            console.warn("[遣散指定卡牌] 管理器不存在");
             showToast("管理器未就绪");
             return false;
         }
 
-        // 检查是否在招募阶段
         var phase = m.Phase || m.phase;
         if (phase !== 6 && phase !== 'InRecruit') {
-            console.warn("[遣散指定卡牌] 不在招募阶段，phase=" + phase);
             showToast("非招募阶段");
             return false;
         }
@@ -255,48 +402,35 @@
         var hand = m.HandChess || m.handChess || [];
         if (!hand || hand.length === 0) {
             showToast("手牌为空");
-            console.warn("[遣散指定卡牌] 手牌为空");
             return false;
         }
 
-        // 收集所有匹配的卡牌 goodsID
         var goodsIDsToDiscard = [];
         var cardNames = [];
 
         for (var i = 0; i < hand.length; i++) {
             var card = hand[i];
             if (!card) continue;
-
             var chessID = card.chessID || card.ChessID || 0;
             if (TARGET_DISCARD_SET.has(chessID)) {
                 var goodsID = card.goodsID || card.GoodsID || 0;
                 if (goodsID) {
                     goodsIDsToDiscard.push(goodsID);
-                    // 尝试获取卡牌名称
                     var name = card.name || card.Name || '';
-                    if (name) {
-                        cardNames.push(name);
-                    } else {
-                        cardNames.push(String(chessID));
-                    }
+                    cardNames.push(name || String(chessID));
                 }
             }
         }
 
         if (goodsIDsToDiscard.length === 0) {
             showToast("手牌中无目标卡牌");
-            console.info("[遣散指定卡牌] 手牌中无目标卡牌");
             return false;
         }
 
-        console.info("[遣散指定卡牌] 找到", goodsIDsToDiscard.length, "张目标卡牌:", cardNames.join(', '));
-
-        // 逐个遣散（间隔 60ms，避免请求过快）
         goodsIDsToDiscard.forEach(function(gid, index) {
             setTimeout(function() {
                 if (typeof m.ReqShopRecycleChess === "function") {
                     m.ReqShopRecycleChess(gid);
-                    console.info("[遣散指定卡牌] 遣散 goodsID=", gid);
                 }
             }, index * 60);
         });
@@ -305,9 +439,7 @@
         return true;
     }
 
-    // ============================================================
-    // 自动随征 - Shift+3
-    // ============================================================
+    // 自动随征 (Shift+3)
     function isFollowUpCard(card) {
         if (!card) return false;
         var chessID = card.chessID || card.ChessID || 0;
@@ -317,7 +449,6 @@
     function getRightmostFollowUpCard() {
         var m = getManager();
         if (!m) return null;
-
         var hand = m.HandChess || m.handChess || [];
         for (var i = hand.length - 1; i >= 0; i--) {
             var card = hand[i];
@@ -336,21 +467,11 @@
     function getTargetChess(position) {
         var m = getManager();
         if (!m) return null;
-
         position = position || 0;
         var lineup = m.BattleChess || m.SelfInfo?.LineUpChess || [];
-
-        if (position < 0 || position >= lineup.length) {
-            console.warn('[随征] 位置超出范围:', position);
-            return null;
-        }
-
+        if (position < 0 || position >= lineup.length) return null;
         var target = lineup[position];
-        if (!target) {
-            console.warn('[随征] 位置', position, '没有棋子');
-            return null;
-        }
-
+        if (!target) return null;
         return {
             chess: target,
             goodsID: target.goodsID || target.GoodsID || 0,
@@ -361,45 +482,33 @@
     function autoFollowUp() {
         var m = getManager();
         if (!m) {
-            console.warn('[随征] 未找到管理器');
             showToast("管理器未就绪");
             return false;
         }
 
-        // 检查是否在招募阶段
         var phase = m.Phase || m.phase;
         if (phase !== 6 && phase !== 'InRecruit') {
-            console.warn('[随征] 不在招募阶段，phase=' + phase);
             showToast("非招募阶段");
             return false;
         }
 
-        // 1. 查找随征卡（最右侧）
         var followUp = getRightmostFollowUpCard();
         if (!followUp) {
-            console.warn('[随征] 手牌中没有随征卡');
             showToast("无随征卡");
             return false;
         }
-        console.info('[随征] 找到随征卡:', followUp.chessID, 'goodsID:', followUp.goodsID);
 
-        // 2. 查找目标棋子（位置0）
         var target = getTargetChess(0);
         if (!target) {
-            console.warn('[随征] 位置0没有棋子');
             showToast("位置0无棋子");
             return false;
         }
-        console.info('[随征] 目标棋子:', target.chessID, 'goodsID:', target.goodsID);
 
-        // 3. 执行随征
         if (typeof m.ReqChessFollowUp === 'function') {
             m.ReqChessFollowUp(target.goodsID, followUp.goodsID);
-            console.info('[随征] ✅ 已发送随征请求 目标:', target.goodsID, '随征卡:', followUp.goodsID);
             showToast("随征成功");
             return true;
         } else {
-            console.warn('[随征] ReqChessFollowUp 方法不存在');
             showToast("随征失败");
             return false;
         }
@@ -408,13 +517,11 @@
     function skipBattle() {
         try {
             const scene = getScene();
-            if (!scene || typeof scene.onJumpBtnClick !== "function") {
-                console.info("[跳过] 场景未就绪"); return false;
-            }
+            if (!scene || typeof scene.onJumpBtnClick !== "function") return false;
             const p = scene.manager?.phase;
             if (p === 9) { scene.onJumpBtnClick(); return true; }
             if (p === 7) { scene.onEndRecruitJump(); return true; }
-            console.info("[跳过] 当前阶段:", p); return false;
+            return false;
         } catch(e) { return false; }
     }
 
@@ -442,17 +549,13 @@
         const mgr = getManager();
         if (!mgr || typeof mgr.ReqShopBuyChess !== "function") return false;
         const goods = mgr.ShopGoods;
-        if (!goods || !goods[index]) {
-            console.info("[买入] 格子", index+1, "无商品");
-            return false;
-        }
+        if (!goods || !goods[index]) return false;
         const goodsID = goods[index].goodsID;
         if (!goodsID) return false;
 
         const scene = getScene();
         mgr.ReqShopBuyChess(goodsID);
 
-        // 手动隐藏商店卡片，提升即时反馈
         try {
             if (scene && scene.shopView && scene.shopView.cellUIs) {
                 const cell = scene.shopView.cellUIs[index];
@@ -463,44 +566,30 @@
             }
         } catch(e) {}
 
-        console.info("[买入] 格子", index+1, "goodsID=", goodsID);
         showToast("买入第" + (index+1) + "格");
         return true;
     }
 
     function discardRightmostHand() {
         const mgr = getManager();
-        if (!mgr) {
-            console.warn("[遣散手牌] 管理器不存在");
-            return false;
-        }
+        if (!mgr) return false;
         const hand = mgr.HandChess;
         if (!hand || hand.length === 0) {
             showToast("手牌为空");
             return false;
         }
         const last = hand[hand.length - 1];
-        if (!last || !last.goodsID) {
-            console.warn("[遣散手牌] 最右侧棋子无效");
-            return false;
-        }
+        if (!last || !last.goodsID) return false;
         const goodsID = last.goodsID;
-        if (typeof mgr.ReqShopRecycleChess !== "function") {
-            console.warn("[遣散手牌] ReqShopRecycleChess 方法不存在");
-            return false;
-        }
+        if (typeof mgr.ReqShopRecycleChess !== "function") return false;
         mgr.ReqShopRecycleChess(goodsID);
-        console.info("[遣散手牌] 请求已发送，goodsID=", goodsID);
         showToast("遣散手牌最右侧");
         return true;
     }
 
     function discardRightmostBattle() {
         const mgr = getManager();
-        if (!mgr) {
-            console.warn("[遣散战斗区] 管理器不存在");
-            return false;
-        }
+        if (!mgr) return false;
         const lineup = mgr.SelfInfo.LineUpGoodsIDs;
         if (!lineup || lineup.length === 0) {
             showToast("战斗区为空");
@@ -517,12 +606,8 @@
             showToast("战斗区无棋子");
             return false;
         }
-        if (typeof mgr.ReqShopRecycleChess !== "function") {
-            console.warn("[遣散战斗区] ReqShopRecycleChess 方法不存在");
-            return false;
-        }
+        if (typeof mgr.ReqShopRecycleChess !== "function") return false;
         mgr.ReqShopRecycleChess(goodsID);
-        console.info("[遣散战斗区] 请求已发送，goodsID=", goodsID);
         showToast("遣散战斗区最右侧");
         refreshBattleView("manual");
         return true;
@@ -532,58 +617,43 @@
         const mgr = getManager();
         if (!mgr) {
             showToast("管理器未就绪");
-            console.error("[上阵] 管理器未就绪");
             return false;
         }
         if (mgr.phase !== 6) {
             showToast("非招募阶段");
-            console.warn("[上阵] 当前阶段非招募，phase=" + mgr.phase);
             return false;
         }
         if (!mgr.CanOperate) {
             showToast("不可操作");
-            console.warn("[上阵] CanOperate 为 false");
             return false;
         }
         const hand = mgr.HandChess;
         if (!hand || hand.length === 0) {
             showToast("手牌为空");
-            console.warn("[上阵] 手牌为空");
             return false;
         }
         const last = hand[hand.length - 1];
         if (!last || !last.goodsID) {
             showToast("无效卡牌");
-            console.warn("[上阵] 最右侧卡牌无效", last);
             return false;
         }
         const goodsID = last.goodsID;
-        console.info("[上阵调试] 待上阵 goodsID=", goodsID);
 
         let lineup = mgr.SelfInfo.LineUpGoodsIDs.slice();
-        console.info("[上阵调试] 原始阵容 (长度=" + lineup.length + "):", lineup);
-
-        while (lineup.length < 7) {
-            lineup.push(0);
-        }
-        console.info("[上阵调试] 补齐后阵容 (长度=7):", lineup);
+        while (lineup.length < 7) lineup.push(0);
 
         const emptyIndex = lineup.indexOf(0);
         if (emptyIndex === -1) {
             showToast("战斗区已满");
-            console.warn("[上阵调试] 无空位，上阵失败");
             return false;
         }
         lineup[emptyIndex] = goodsID;
-        console.info("[上阵调试] 放入后阵容:", lineup);
 
         if (typeof mgr.ReqChessLineUp !== "function") {
             showToast("ReqChessLineUp 方法不存在");
-            console.error("[上阵] 方法缺失");
             return false;
         }
 
-        // 轮询检测
         let pollInterval = null;
         let pollCount = 0;
         const MAX_POLL = 10;
@@ -593,7 +663,6 @@
             if (pollInterval) {
                 clearInterval(pollInterval);
                 pollInterval = null;
-                console.info("[上阵] 轮询停止");
             }
         };
 
@@ -610,14 +679,12 @@
                 }
             }
             if (!found) {
-                console.info("[上阵] 检测到手牌已移除 goodsID=" + goodsID + "，刷新UI (来源: polling)");
                 setTimeout(() => {
                     refreshHandView(goodsID, "polling");
                     refreshBattleView("polling");
                 }, 50);
                 stopPolling();
             } else if (pollCount >= MAX_POLL) {
-                console.warn("[上阵] 轮询超时，手牌未变化，强制刷新一次");
                 refreshHandView(goodsID, "polling");
                 refreshBattleView("polling");
                 stopPolling();
@@ -627,9 +694,7 @@
         pollInterval = setInterval(checkHand, POLL_INTERVAL_MS);
         setTimeout(checkHand, 0);
 
-        // 事件监听辅助
         const onHandUpdate = function() {
-            console.info("[上阵事件] UI_UPDATE_HAND_CARD 触发，刷新UI");
             setTimeout(() => {
                 refreshHandView(goodsID, "event");
                 refreshBattleView("event");
@@ -637,7 +702,6 @@
             mgr.off('UI_UPDATE_HAND_CARD', onHandUpdate);
         };
         const onLineUp = function(result) {
-            console.info("[上阵事件] ANI_LINE_UP 触发，result:", result);
             setTimeout(() => {
                 refreshHandView(goodsID, "event");
                 refreshBattleView("event");
@@ -645,7 +709,6 @@
             mgr.off('ANI_LINE_UP', onLineUp);
         };
         const onHandNumUpdate = function() {
-            console.info("[上阵事件] UI_UPDATE_HAND_CARD_NUM 触发，刷新UI");
             setTimeout(() => {
                 refreshHandView(goodsID, "event");
                 refreshBattleView("event");
@@ -657,11 +720,9 @@
         mgr.on('UI_UPDATE_HAND_CARD_NUM', onHandNumUpdate);
 
         mgr.ReqChessLineUp(lineup);
-        console.info("[上阵] 请求已发送，开始轮询检测（50ms间隔）...");
 
         setTimeout(() => {
             if (pollInterval) {
-                console.warn("[上阵] 1秒超时，强制停止轮询并刷新");
                 stopPolling();
                 refreshHandView(goodsID, "polling");
                 refreshBattleView("polling");
@@ -676,20 +737,17 @@
         const mgr = getManager();
         if (!mgr) {
             showToast("管理器未就绪");
-            console.warn("[使用锦囊] 管理器不存在");
             return false;
         }
 
         if (mgr.phase !== 6) {
             showToast("非招募阶段");
-            console.warn("[使用锦囊] 当前阶段非招募，phase=" + mgr.phase);
             return false;
         }
 
         const hand = mgr.HandChess;
         if (!hand || hand.length === 0) {
             showToast("手牌为空");
-            console.warn("[使用锦囊] 手牌为空");
             return false;
         }
 
@@ -708,24 +766,15 @@
 
         if (spellIndex === -1 || !spellCard || !spellGoodsID) {
             showToast("手牌最右侧无锦囊");
-            console.warn("[使用锦囊] 手牌中无锦囊牌");
             return false;
         }
-
-        console.info("[使用锦囊] 找到锦囊 index=" + spellIndex + ", goodsID=" + spellGoodsID);
 
         const targetList = [];
 
         const shopGoods = mgr.ShopGoods || [];
         if (shopGoods.length > 0 && shopGoods[0]) {
             const tid = shopGoods[0].goodsID || shopGoods[0].GoodsID || 0;
-            if (tid) {
-                targetList.push({
-                    id: tid,
-                    label: '商店',
-                    type: 'shop'
-                });
-            }
+            if (tid) targetList.push({ id: tid, label: '商店', type: 'shop' });
         }
 
         const lineup = mgr.BattleChess || mgr.selfInfo?.LineUpChess || [];
@@ -733,24 +782,14 @@
             const target = lineup[i];
             if (target) {
                 const tid = target.goodsID || target.GoodsID || target.UniqueId || 0;
-                if (tid) {
-                    targetList.push({
-                        id: tid,
-                        label: '上阵位置' + i,
-                        type: 'lineup',
-                        index: i
-                    });
-                }
+                if (tid) targetList.push({ id: tid, label: '上阵位置' + i, type: 'lineup', index: i });
             }
         }
 
         if (targetList.length === 0) {
             showToast("无可用目标");
-            console.warn("[使用锦囊] 无可用目标");
             return false;
         }
-
-        console.info("[使用锦囊] 目标列表:", targetList.map(t => t.label).join(' -> '));
 
         let currentTargetIdx = 0;
         let isCompleted = false;
@@ -758,43 +797,33 @@
 
         function onSpellResponse(e) {
             if (isCompleted) return;
-
             const proto = e.Protocol;
-
             if (proto.errCode) {
-                console.warn("[使用锦囊] 目标失败, errCode=" + proto.errCode);
                 currentTargetIdx++;
                 tryNextTarget();
             } else {
                 isCompleted = true;
                 clearTimeout(timeoutId);
                 mgr.off('RESP_CHESS_SPELL_USE', onSpellResponse);
-                console.info("[使用锦囊] 使用成功！");
                 showToast("使用锦囊成功");
             }
         }
 
         function tryNextTarget() {
             if (isCompleted) return;
-
             if (currentTargetIdx >= targetList.length) {
                 isCompleted = true;
                 mgr.off('RESP_CHESS_SPELL_USE', onSpellResponse);
                 showToast("锦囊无可用目标");
-                console.warn("[使用锦囊] 所有目标均失败");
                 return;
             }
-
             const target = targetList[currentTargetIdx];
-            console.info("[使用锦囊] 尝试目标 " + currentTargetIdx + ": " + target.label + " (id=" + target.id + ")");
-
             if (typeof mgr.ReqChessUseSpell !== 'function') {
                 showToast("ReqChessUseSpell 方法不存在");
                 isCompleted = true;
                 mgr.off('RESP_CHESS_SPELL_USE', onSpellResponse);
                 return;
             }
-
             mgr.ReqChessUseSpell(spellGoodsID, [target.id]);
         }
 
@@ -802,7 +831,6 @@
 
         timeoutId = setTimeout(function() {
             if (isCompleted) return;
-            console.warn("[使用锦囊] 超时，尝试下一个目标");
             mgr.off('RESP_CHESS_SPELL_USE', onSpellResponse);
             currentTargetIdx++;
             mgr.on('RESP_CHESS_SPELL_USE', onSpellResponse);
@@ -831,10 +859,23 @@
         const tag = e.target.tagName;
         if (tag === "INPUT" || tag === "TEXTAREA") return;
 
+        // Alt+1 切换自动刷新+购买祢衡
+        if (e.altKey && e.key === "1") {
+            e.preventDefault();
+            toggleAutoBuy('miheng');
+            return;
+        }
+
+        // Alt+2 切换自动刷新+购买庞德公
+        if (e.altKey && e.key === "2") {
+            e.preventDefault();
+            toggleAutoBuy('pangdegong');
+            return;
+        }
+
         // Shift+R 强制刷新UI
         if (e.code === 'KeyR' && e.shiftKey) {
             e.preventDefault();
-            console.info("[强制刷新] 手动刷新手牌和战斗区");
             refreshHandView(undefined, "manual");
             refreshBattleView("manual");
             showToast("强制刷新UI");
@@ -851,17 +892,13 @@
         // Shift+3 自动随征
         if (e.code === 'Digit3' && e.shiftKey) {
             e.preventDefault();
-            console.info("[快捷键] Shift+3 - 自动随征");
             autoFollowUp();
             return;
         }
 
-        // ============================================================
-        // 【新增】Shift+4 一键遣散指定卡牌
-        // ============================================================
+        // Shift+4 一键遣散指定卡牌
         if (e.code === 'Digit4' && e.shiftKey) {
             e.preventDefault();
-            console.info("[快捷键] Shift+4 - 一键遣散指定卡牌");
             discardTargetChessIds();
             return;
         }
@@ -871,19 +908,13 @@
             e.preventDefault();
             window.blockTripleCombine = !window.blockTripleCombine;
             const status = window.blockTripleCombine ? "阻止" : "允许";
-            console.info("[三连] 当前状态:", status);
             showToast("三连" + status);
-
             if (!window.blockTripleCombine) {
                 const mgr = getManager();
                 if (mgr) {
                     setTimeout(() => {
-                        if (typeof mgr.checkSanLianReq === 'function') {
-                            mgr.checkSanLianReq();
-                        }
-                        if (typeof mgr.checkSanLianAni === 'function') {
-                            mgr.checkSanLianAni();
-                        }
+                        if (typeof mgr.checkSanLianReq === 'function') mgr.checkSanLianReq();
+                        if (typeof mgr.checkSanLianAni === 'function') mgr.checkSanLianAni();
                     }, 50);
                 }
             }
@@ -940,9 +971,9 @@
         setTimeout(bindEvents, 1000);
     }
 
-    console.info("[AutoChess] v1.0.1.2 已启动");
-    console.info("  快捷键: 1-6购买 | Shift+1遣散手牌最右 | Shift+2使用最右侧锦囊 | Shift+3自动随征 | Shift+4一键遣散指定卡牌");
+    console.info("[AutoChess] v1.0.1.4 已启动");
+    console.info("  1-6购买 | Shift+1遣散手牌最右 | Shift+2使用最右侧锦囊 | Shift+3自动随征 | Shift+4一键遣散指定卡牌");
+    console.info("  Alt+1自动刷新+购买祢衡(开关) | Alt+2自动刷新+购买庞德公(开关)");
     console.info("  Alt+9遣散战斗区最右 | Alt+0上阵最右 | R刷新 | F锁定 | 空格跳过 | Tab切换三连状态 | Shift+R强制刷新UI");
-    console.info("  Shift+4 目标卡牌: 吕蒙/陈武/陆逊/程普/凌统/周善/徐盛/甘宁/太史慈/张昭/大乔/孙坚/鲁肃/孙尚香/孙翎鸾/周瑜/小乔/韩当/董袭");
 
 })();
