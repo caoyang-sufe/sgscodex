@@ -4,6 +4,7 @@
 - [【JS】自走棋小抄改良](https://www.bilibili.com/video/BV1jrN36kEMN/)：
   - <font color=yellow><b>三国杀自走棋小抄完全免费开源，如果任何地方存在售卖请通知本人（B站私信或Issues里，或邮箱联系caoyang@stu.sufe.edu.cn）</b></font>
   - **有问题尽量在 issues 里说，B 站私信评论不一定及时回复。多听，多学，多看，慎言。先思考，再提问**
+  - 关于如何抓包一将成名，数据包加解密教程，移步[https://github.com/caoyang-sufe/sgs_forward_looking](https://github.com/caoyang-sufe/sgs_forward_looking)
 
 **想要contribute本项目（如添加新功能）的小伙伴，可以创建Pull Request，只允许写入mod文件夹下的内容，提交格式为`署名-功能名-版本号.js`，任何包含其他修改的PR均不会被接受**
 
@@ -41,7 +42,7 @@
 
 ---
 
-## mod文件夹下关键mod的执行逻辑伪代码
+## mod文件夹下全自动脚本的伪代码逻辑
 
 System Prompt:
 
@@ -118,6 +119,52 @@ while true:
 
 ----
 
+## 261120 更新目录结构
+
+为方便使用，目前把B站视频教程中用于demo的脚本统一归档到`./bilibili-demo`目录下，从B站来的小伙伴如果找不到视频中使用的脚本，请到`./bilibili-demo`下面查找
+
+js脚本
+
+- AutoBuyAndSell: 自动寻牌助手
+  - 调整`timer = setTimeout(doNext, 200);`中设置间隔时间，测试如果间隔<=100，可能不够时间买全卡牌，最好设>=200的数值，慢一些但是稳定
+- AutoRefresh.js: 自动刷新（连点器上位方案）
+  - 这个想多快就多快，`interval`默认为0（无间隔）
+- AutoUseSpell.js: 陆逊小抄（已删除，不影响游戏平衡） & 一键使用锦囊（ChessHelper中已经实现键控使用锦囊）
+  - 一键使用锦囊目前unstable，因为锦囊变化太大，不同锦囊的使用参数区别大，目前用的是这样一套使用逻辑：
+    - 优先尝试无参数调用（如先驱、洞烛这类直接使用的锦囊）
+	- 如果失败则对营帐第一个格子使用（如过拆）
+	- 如果失败尝试对场上第一个棋子使用（如桃、酒等）
+	- 如果都失败，则卖掉锦囊
+	- 可能出现的问题：如草船、三顾使用后需要手动选择一次（这种情况还没有处理），再比如连续使用过拆，营帐可能没有可以拆掉的对象
+- SGSCheater.js: 三国杀打小抄（作者：小麦 & 孤独尊）
+- TavernchessSkipBattle.js: 跳过自走棋战斗按钮
+- TavernChessStats-0.4.3.js: 自走棋数据统计
+- ChessHelper.js: 键盘控制的自走棋快捷助手
+- EasyAutoRefresh.js: 执行后自动刷新1次
+- EasyBuy.js: 自动购买卡牌
+- EasyClick.js: 执行后启动页端连点器（跟随鼠标）
+- EasyDeploy.js: 自动上阵操作（上阵卡牌的位置调整可自动化，但是没什么意义目前）
+- EasyRefreshUI.js: 手动刷新UI（把手牌区没显示的卡牌刷出来）
+- EasySelect3.js: 3选1框自动选择
+  - 目前针对3选1装备是测试通过的，但针对卡牌/锦囊的3选1目前测试不能通过，待修
+- EasySell.js: 自动遣散卡牌
+- EasySkipBattle.js: 执行后跳过战斗
+- EasyUseSpell.js: 脚本操作使用一张锦囊
+
+python脚本：
+- EasyClick.py: 连点器
+- visualization.py: 统计数据可视化
+
+
+txt文本：
+
+- ChessIdMap.txt: 棋子ID映射表
+- SpellIdMap.txt: 锦囊ID映射表
+
+
+
+----
+
 ## 261029
 
 一些有一定coding基础的小伙伴，基于本人公开的方法，开发出全自动操作的脚本，我知道全自动脚本开发需要长时间的测试优化，我尊重大家的劳动成果，但过于张扬就会招致不必要的攻击，大家可以偷偷自己用去上分，而没有必要去嘲讽那些不会使用脚本的玩家。获得满足感的方式是多样的，人没有必要为自己招致无意义的麻烦，应当学会明智地做事，而非意气。
@@ -169,43 +216,9 @@ mod文件夹里目前上传了一些没啥用的小功能，测试了若干欺�
     - 可将自动购买后不显示的卡牌显示出来
   - **陆逊小抄已禁用，不要想作弊**
 
-- AutoBuyAndSell: 自动寻牌助手
-  - 调整`timer = setTimeout(doNext, 200);`中设置间隔时间，测试如果间隔<=100，可能不够时间买全卡牌，最好设>=200的数值，慢一些但是稳定
-- AutoRefresh.js: 自动刷新（连点器上位方案）
-  - 这个想多快就多快，`interval`默认为0（无间隔）
-- AutoUseSpell.js: 陆逊小抄（已删除，不影响游戏平衡） & 一键使用锦囊（ChessHelper中已经实现键控使用锦囊）
-  - 一键使用锦囊目前unstable，因为锦囊变化太大，不同锦囊的使用参数区别大，目前用的是这样一套使用逻辑：
-    - 优先尝试无参数调用（如先驱、洞烛这类直接使用的锦囊）
-	- 如果失败则对营帐第一个格子使用（如过拆）
-	- 如果失败尝试对场上第一个棋子使用（如桃、酒等）
-	- 如果都失败，则卖掉锦囊
-	- 可能出现的问题：如草船、三顾使用后需要手动选择一次（这种情况还没有处理），再比如连续使用过拆，营帐可能没有可以拆掉的对象
-- SGSCheater.js: 三国杀打小抄（作者：小麦 & 孤独尊）
-- TavernchessSkipBattle.js: 跳过自走棋战斗按钮
-- TavernChessStats-0.4.3.js: 自走棋数据统计
-- ChessHelper.js: 键盘控制的自走棋快捷助手
-- EasyAutoRefresh.js: 执行后自动刷新1次
-- EasyBuy.js: 自动购买卡牌
-- EasyClick.js: 执行后启动页端连点器（跟随鼠标）
-- EasyDeploy.js: 自动上阵操作（上阵卡牌的位置调整可自动化，但是没什么意义目前）
-- EasyRefreshUI.js: 手动刷新UI（把手牌区没显示的卡牌刷出来）
-- EasySelect3.js: 3选1框自动选择
-  - 目前针对3选1装备是测试通过的，但针对卡牌/锦囊的3选1目前测试不能通过，待修
-- EasySell.js: 自动遣散卡牌
-- EasySkipBattle.js: 执行后跳过战斗
-- EasyUseSpell.js: 脚本操作使用一张锦囊
 
 ---
 
-python脚本：
-- EasyClick.py: 连点器
-- visualization.py: 统计数据可视化
+
 
 ---
-
-txt文本：
-
-关于如何抓包一将成名，数据包加解密教程，移步[https://github.com/caoyang-sufe/sgs_forward_looking](https://github.com/caoyang-sufe/sgs_forward_looking)
-
-- ChessIdMap.txt: 棋子ID映射表
-- SpellIdMap.txt: 锦囊ID映射表
