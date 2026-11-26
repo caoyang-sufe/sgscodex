@@ -8,8 +8,8 @@
 - [mod文件夹下全自动脚本的伪代码逻辑](https://github.com/caoyang-sufe/sgscodex#mod%E6%96%87%E4%BB%B6%E5%A4%B9%E4%B8%8B%E5%85%A8%E8%87%AA%E5%8A%A8%E8%84%9A%E6%9C%AC%E7%9A%84%E4%BC%AA%E4%BB%A3%E7%A0%81%E9%80%BB%E8%BE%91)
 - [261120 更新目录结构](https://github.com/caoyang-sufe/sgscodex#261120-%E6%9B%B4%E6%96%B0%E7%9B%AE%E5%BD%95%E7%BB%93%E6%9E%84)
 - [261029 全自动脚本使用声明](https://github.com/caoyang-sufe/sgscodex#261029-%E5%85%A8%E8%87%AA%E5%8A%A8%E8%84%9A%E6%9C%AC%E4%BD%BF%E7%94%A8%E5%A3%B0%E6%98%8E)
-- [260802 mod更新摘要](https://github.com/caoyang-sufe/sgscodex#260802-%E6%9B%B4%E6%96%B0%E6%91%98%E8%A6%81)
-- [260728 初版小抄发布说明](https://github.com/caoyang-sufe/sgscodex#260728%E6%9B%B4%E6%96%B0%E6%91%98%E8%A6%81)
+- [260802 mod更新摘要](https://github.com/caoyang-sufe/sgscodex#260802-mod%E6%9B%B4%E6%96%B0%E6%91%98%E8%A6%81)
+- [260728 初版小抄发布说明](https://github.com/caoyang-sufe/sgscodex#260728-%E5%88%9D%E7%89%88%E5%B0%8F%E6%8A%84%E5%8F%91%E5%B8%83%E8%AF%B4%E6%98%8E)
 
 ---
 
