@@ -71,7 +71,7 @@
 	
 	//261126版本小更新：shift+4自动遣散过快会被系统强制卡停，设置自动遣散的间隔时间
 	//261126测试，200ms会触发卡顿，300ms有时会卡顿，400ms基本不会卡顿
-	var AUTO_DISCARD_DELAY = 400;
+	var AUTO_DISCARD_DELAY = 500;
 
     // 候选卡牌列表（可扩展）：alt+2自动寻牌
     var CANDIDATE_CHESS = [
